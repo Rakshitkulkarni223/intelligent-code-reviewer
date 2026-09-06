@@ -1,0 +1,22 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+credentials.json
+service-account.json
+*.key
+*.pem
+
+# node
+node_modules/
+dist/
+build/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# os
+.DS_Store
