@@ -3,7 +3,11 @@ import EmptyState from './EmptyState';
 
 export default function HistoricalInsight({ matches }: { matches: HistoricalMatch[] }) {
   if (matches.length === 0) {
-    return <EmptyState icon="🕘" title="No historical patterns matched" description="This submission didn't closely resemble prior review rules." />;
+    return (
+      <div className="card">
+        <EmptyState compact icon="🕘" title="No historical patterns matched" description="This submission didn't closely resemble prior review rules." />
+      </div>
+    );
   }
   return (
     <div className="card">
