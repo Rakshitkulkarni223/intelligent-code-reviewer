@@ -33,13 +33,13 @@ async def create_review(user_id: str, code: str, requested_language: str, idempo
         status="QUEUED",
         language=language,
         codeHash=_code_hash(code, language),
+        code=code,
         codeSize=len(code.encode("utf-8")),
         lines=code.count("\n") + 1,
         secretsDetected=secrets_detected,
         attempts=0,
         createdAt=firestore_service.now(),
     )
-    await firestore_service.save_code(review.id, code)
     await firestore_service.create_review(review)
     if idempotency_key:
         await firestore_service.set_idempotency_key(user_id, idempotency_key, review.id)
@@ -68,16 +68,11 @@ async def process_review(user_id: str, review_id: str, delivery_attempt: int) ->
         logger.warning("review not found reviewId=%s", review_id)
         return
 
-    code = await firestore_service.get_code(review_id)
-    if code is None:
-        await firestore_service.update_review(user_id, review_id, status="FAILED", error="Original submission is no longer available")
-        return
-
     await firestore_service.update_review(user_id, review_id, status="ANALYZING", attempts=delivery_attempt)
 
     try:
-        language = language_detector.resolve_language(review.language, code)
-        analysis, categories = gemini_service.analyze_code(code, language)
+        language = language_detector.resolve_language(review.language, review.code)
+        analysis, categories = gemini_service.analyze_code(review.code, language)
         hint_text = " ".join(f"{i.title} {i.suggestion}" for i in analysis.issues)
         matches = historical_data.find_matches(categories, hint_text)
         analysis.historicalMatches = [

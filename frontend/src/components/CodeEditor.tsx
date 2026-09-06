@@ -17,17 +17,19 @@ const MONACO_LANGUAGE_MAP: Record<string, string> = {
 interface Props {
   value: string;
   language: string;
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
+  readOnly?: boolean;
+  height?: string;
 }
 
-export default function CodeEditor({ value, language, onChange }: Props) {
+export default function CodeEditor({ value, language, onChange, readOnly, height = '420px' }: Props) {
   return (
     <Editor
-      height="420px"
+      height={height}
       theme="vs-dark"
       language={MONACO_LANGUAGE_MAP[language] ?? 'plaintext'}
       value={value}
-      onChange={(v) => onChange(v ?? '')}
+      onChange={(v) => onChange?.(v ?? '')}
       options={{
         fontSize: 13,
         minimap: { enabled: false },
@@ -35,6 +37,8 @@ export default function CodeEditor({ value, language, onChange }: Props) {
         scrollBeyondLastLine: false,
         tabSize: 2,
         wordWrap: 'on',
+        readOnly,
+        domReadOnly: readOnly,
       }}
     />
   );

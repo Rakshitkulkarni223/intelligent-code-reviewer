@@ -9,10 +9,6 @@ from app.schemas.review import Review
 # rewrite of callers.
 _store: dict[str, dict[str, Review]] = {}
 _idempotency: dict[str, dict[str, str]] = {}
-# ponytail: raw code is kept out of the Review model (never returned by the API,
-# never logged) but the worker still needs it to run analysis and to support
-# retry. Local stand-in for a Cloud Storage object / excluded Firestore field.
-_code_cache: dict[str, str] = {}
 _lock = asyncio.Lock()
 
 
@@ -50,16 +46,6 @@ async def get_idempotent_review_id(user_id: str, key: str) -> str | None:
 async def set_idempotency_key(user_id: str, key: str, review_id: str) -> None:
     async with _lock:
         _idempotency.setdefault(user_id, {})[key] = review_id
-
-
-async def save_code(review_id: str, code: str) -> None:
-    async with _lock:
-        _code_cache[review_id] = code
-
-
-async def get_code(review_id: str) -> str | None:
-    async with _lock:
-        return _code_cache.get(review_id)
 
 
 def now() -> datetime:

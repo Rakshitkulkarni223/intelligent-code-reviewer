@@ -45,6 +45,7 @@ export interface Review {
   id: string;
   language: string;
   status: ReviewStatus;
+  code?: string;
   codeSize: number;
   lines: number;
   secretsDetected: boolean;

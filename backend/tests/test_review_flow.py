@@ -97,6 +97,19 @@ def test_language_detector_trusts_explicit_supported_language():
     assert language_detector.resolve_language("javascript", "def foo():\n    pass\n") == "javascript"
 
 
+def test_code_is_retrievable_on_detail_but_excluded_from_list(client):
+    headers = {"Authorization": "Bearer user_a"}
+    create = client.post("/api/reviews", json={"code": CLEAN_CODE, "language": "python"}, headers=headers)
+    review_id = create.json()["reviewId"]
+    _wait_for_completion(client, review_id, headers)
+
+    detail = client.get(f"/api/reviews/{review_id}", headers=headers).json()
+    assert detail["code"] == CLEAN_CODE
+
+    listing = client.get("/api/reviews", headers=headers).json()
+    assert all("code" not in r for r in listing)
+
+
 def test_hardcoded_secret_is_flagged_but_never_logged_verbatim(client, caplog):
     headers = {"Authorization": "Bearer user_a"}
     secret_code = 'API_KEY = "sk_live_abcdef1234567890"\nprint("hi")\n'

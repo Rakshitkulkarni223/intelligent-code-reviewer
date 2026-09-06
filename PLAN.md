@@ -141,6 +141,12 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       the `users/{userId}/reviews/{reviewId}` shape from §26 so swapping in a real Firestore client
       is a small diff, not a rewrite of callers — not yet backed by real Firestore (Phase 10), and
       not persisted across process restarts (acceptable for local dev, not for the deployed app)
+- [x] Deviation from §26's example schema: the review record also stores the original `code`
+      (excluded from the `GET /api/reviews` list response, still present on `GET /api/reviews/{id}`)
+      so the result page can show exactly what was reviewed and a retry can re-run analysis without
+      the submission having to be re-sent. Revisit before a real deployment: §42/§27 imply retention
+      controls (TTL, or moving the blob to Cloud Storage instead of inline in Firestore) once this
+      is backed by a real database rather than an in-memory dict that's wiped on restart anyway.
 - [x] History page: search + filter by language/score/sort-by-date-or-score, click-through to full
       result
 - [x] Ownership check on every read: authenticated identity only, never trust client-supplied IDs

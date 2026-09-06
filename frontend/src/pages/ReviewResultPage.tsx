@@ -4,6 +4,7 @@ import { getReview } from '../services/reviews';
 import type { Review } from '../types';
 import LanguageBadge from '../components/LanguageBadge';
 import ScoreCard from '../components/ScoreCard';
+import CodeEditor from '../components/CodeEditor';
 import IssueList from '../components/IssueList';
 import HistoricalInsight from '../components/HistoricalInsight';
 import ErrorState from '../components/ErrorState';
@@ -71,6 +72,15 @@ export default function ReviewResultPage() {
               </ul>
             )}
           </div>
+
+          {review.code && (
+            <>
+              <h2 style={{ fontSize: 15, marginBottom: 12 }}>Reviewed Code</h2>
+              <div className="editor-panel" style={{ marginBottom: 20 }}>
+                <CodeEditor value={review.code} language={review.language} readOnly height="320px" />
+              </div>
+            </>
+          )}
 
           <h2 style={{ fontSize: 15, marginBottom: 12 }}>Issues</h2>
           <IssueList issues={result.issues} />

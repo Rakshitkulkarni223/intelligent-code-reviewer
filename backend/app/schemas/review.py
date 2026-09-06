@@ -26,6 +26,7 @@ class Review(BaseModel):
     status: ReviewStatus
     language: str
     codeHash: str
+    code: str
     codeSize: int
     lines: int
     secretsDetected: bool = False
@@ -36,7 +37,6 @@ class Review(BaseModel):
     createdAt: datetime
     completedAt: datetime | None = None
 
-    # code itself is intentionally never a field on this model -- it must
-    # never be persisted verbatim into logs/responses beyond what's needed to
-    # run the analysis.
+    # `code` is a real field (the reviewer needs to show what was reviewed) but
+    # must never appear in a log line -- only reviewId/language/score/etc do.
     model_config = ConfigDict(extra="ignore")

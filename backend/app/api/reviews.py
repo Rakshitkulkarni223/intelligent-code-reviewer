@@ -21,9 +21,14 @@ async def create_review(
     return CreateReviewResponse(reviewId=review.id, status=review.status)
 
 
-@router.get("", response_model=list[Review])
-async def list_reviews(user_id: str = Depends(get_current_user_id)):
-    return await firestore_service.list_reviews(user_id)
+@router.get("")
+async def list_reviews(user_id: str = Depends(get_current_user_id)) -> list[dict]:
+    # Full source isn't needed for the history list -- keep that payload light;
+    # GET /api/reviews/{id} still returns it for the single-review detail view.
+    # (response_model_exclude doesn't apply per-item for a list[Model] response
+    # model in this FastAPI version, so excluding is done manually here.)
+    reviews = await firestore_service.list_reviews(user_id)
+    return [r.model_dump(mode="json", exclude={"code"}) for r in reviews]
 
 
 @router.get("/{review_id}", response_model=Review)
