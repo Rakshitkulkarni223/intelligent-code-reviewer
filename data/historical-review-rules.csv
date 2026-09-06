@@ -1,0 +1,16 @@
+id,type,description
+1,formatting,Avoid single-character variable names -- they hurt readability
+2,performance,Cache repeated database lookups inside the request loop
+3,security,Never interpolate raw user input directly into SQL queries
+4,security,Do not hardcode API keys, passwords, or tokens in source code
+5,quality,Avoid bare except clauses that swallow all exceptions silently
+6,quality,Break up functions longer than 50 lines into smaller units
+7,security,Avoid eval() or exec() on untrusted or user-controlled input
+8,performance,Avoid nested loops over the same collection when a single pass suffices
+9,architecture,Separate business logic from HTTP request handling code
+10,quality,Remove leftover debug print/console statements before merging
+11,security,Validate and sanitize all external input at system boundaries
+12,performance,Use connection pooling instead of opening a new DB connection per request
+13,architecture,Avoid tight coupling between the data layer and the presentation layer
+14,quality,Add tests for edge cases such as empty input and boundary values
+15,security,Use parameterized queries or an ORM instead of string-built SQL
