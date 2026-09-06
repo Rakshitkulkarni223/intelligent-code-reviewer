@@ -7,6 +7,7 @@ from app.main import app
 from app.services import gemini_service, language_detector
 
 SQL_INJECTION_CODE = 'def get_user(id):\n    q = f"SELECT * FROM users WHERE id = {id}"\n    return db.execute(q)\n'
+CONCAT_SQL_INJECTION_CODE = 'def get_user(user_id):\n    query = "SELECT * FROM users WHERE id = " + user_id\n    return db.execute(query)\n'
 CLEAN_CODE = "def add(a, b):\n    return a + b\n"
 
 
@@ -41,6 +42,16 @@ def test_full_review_flow_flags_sql_injection(client):
     categories = {i["category"] for i in result["result"]["issues"]}
     assert "security" in categories
     assert len(result["result"]["historicalMatches"]) > 0
+
+
+def test_string_concatenation_sql_injection_is_also_flagged(client):
+    """Regression test: the detector originally only caught f-string/.format()/%
+    SQL building, missing plain "..." + var concatenation entirely."""
+    headers = {"Authorization": "Bearer user_a"}
+    create = client.post("/api/reviews", json={"code": CONCAT_SQL_INJECTION_CODE, "language": "python"}, headers=headers)
+    result = _wait_for_completion(client, create.json()["reviewId"], headers)
+    categories = {i["category"] for i in result["result"]["issues"]}
+    assert "security" in categories
 
 
 def test_clean_code_gets_no_issues(client):

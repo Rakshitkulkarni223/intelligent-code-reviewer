@@ -15,8 +15,11 @@ from app.schemas.gemini_response import GeminiAnalysis, Issue, ScoreDimensions
 
 _DETECTORS: list[tuple[str, str, re.Pattern, str, str]] = [
     # (category, severity, pattern, title, suggestion)
-    ("security", "high", re.compile(r"""(f['"]|\.format\(|%\s*\()[^\n]*?\b(SELECT|INSERT|UPDATE|DELETE)\b""", re.I),
-     "Potential SQL injection", "Use parameterized queries or an ORM instead of building SQL from interpolated strings."),
+    ("security", "high", re.compile(
+        r"""(f['"]|\.format\(|%\s*\(|['"]\s*\+)[^\n]*?\b(SELECT|INSERT|UPDATE|DELETE)\b"""
+        r"""|\b(SELECT|INSERT|UPDATE|DELETE)\b[^\n]*?['"]\s*\+""",
+        re.I,
+    ), "Potential SQL injection", "Use parameterized queries or an ORM instead of building SQL from interpolated strings."),
     ("security", "high", re.compile(r"""(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*['"][^'"]{6,}['"]"""),
      "Hardcoded credential", "Move secrets to environment variables or a secret manager; never commit them to source."),
     ("security", "high", re.compile(r"\b(eval|exec)\s*\("),
