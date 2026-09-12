@@ -72,9 +72,16 @@ async def process_review(user_id: str, review_id: str, delivery_attempt: int) ->
 
     try:
         language = language_detector.resolve_language(review.language, review.code)
-        analysis, categories = gemini_service.analyze_code(review.code, language)
-        hint_text = " ".join(f"{i.title} {i.suggestion}" for i in analysis.issues)
-        matches = historical_data.find_matches(categories, hint_text)
+        if settings.local_mode:
+            # Mock retrieval needs the categories Gemini's mock already found,
+            # so it must run after analysis; the real pipeline below reverses
+            # this since Vector Search retrieval feeds the Gemini prompt.
+            analysis, categories = await gemini_service.analyze_code(review.code, language)
+            hint_text = " ".join(f"{i.title} {i.suggestion}" for i in analysis.issues)
+            matches = await historical_data.find_matches(review.code, language, categories=categories, hint_text=hint_text)
+        else:
+            matches = await historical_data.find_matches(review.code, language)
+            analysis, _categories = await gemini_service.analyze_code(review.code, language, historical_rules=matches)
         analysis.historicalMatches = [
             HistoricalMatch(type=r.type, description=r.description) for r in matches
         ]

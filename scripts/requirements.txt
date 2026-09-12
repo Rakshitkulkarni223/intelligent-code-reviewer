@@ -1,0 +1,4 @@
+google-genai==2.23.0
+google-cloud-aiplatform==1.165.1
+google-cloud-storage==3.14.1
+python-dotenv==1.0.1

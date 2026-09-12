@@ -95,52 +95,73 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       but intentionally does NOT auto-dedupe submissions — "Review Again" on unchanged code must
       still create a new review, not silently return the old one)
 
-## Phase 4 — Gemini integration (BLOCKED on Vertex AI credentials — mocked for now)
+## Phase 4 — Gemini integration (code wired; unverified against a live project)
 
-- [ ] `backend/app/services/gemini_service.py`: currently a deterministic regex-based analyzer, not
-      a real Vertex AI Gemini call — swap requires `GOOGLE_CLOUD_PROJECT` credentials from the
-      Phase 10 sandbox. The function signature (`analyze_code(code, language) -> GeminiAnalysis`)
-      and the validated response schema (`app/schemas/gemini_response.py`) are already the contract
-      a real implementation would fill.
-- [ ] System prompt explicitly states submitted code is untrusted data whose embedded instructions
-      must never override system instructions (no prompt exists yet since there's no LLM call; the
-      mock analyzer is regex-based so it has nothing to be injected into — a test asserting this
-      stays true is already in `tests/test_review_flow.py`)
+- [x] `backend/app/services/gemini_service.py`: `analyze_code()` now dispatches on
+      `settings.local_mode` — `true` keeps the regex-based mock (`_analyze_code_mock`), `false` calls
+      real Gemini on Vertex AI via `google-genai` (`_analyze_with_gemini`, `client.aio.models.generate_content`
+      with `response_schema=GeminiModelOutput`). Not yet run against a live GCP project/credentials —
+      set `LOCAL_MODE=false` + the `.env.example` GCP vars once available and re-verify.
+- [x] System prompt (`_SYSTEM_INSTRUCTIONS`) explicitly states the submitted code is untrusted data
+      wrapped in `--- BEGIN/END UNTRUSTED CODE UNDER REVIEW ---` markers, and that embedded
+      instructions in it must never override the system prompt — mirrors the existing prompt-injection
+      test's intent (`tests/test_review_flow.py::test_prompt_injection_in_code_does_not_change_scoring_path`),
+      which still only exercises the mock path and should be re-run in real mode once credentials exist.
 - [ ] Handle: timeout, rate limit, service unavailable, malformed JSON, safety refusal — the FAILED
-      state + retry plumbing exists (`review_service.process_review`) and is exercised by the mock
-      analyzer's exception path, but the specific real-API failure modes aren't wired up yet
+      state + retry plumbing exists (`review_service.process_review`) and covers any exception from
+      `_analyze_with_gemini` generically, but no real-API error has been observed/tested yet since
+      there's no live project to call.
 - [x] Quality score computed from the weighted dimensions in §16, capped 1–10, always paired with
       an explanation, never presented as an exact measurement
 
-## Phase 5 — Async processing (implemented locally; Pub/Sub itself is Phase 10)
+## Phase 5 — Async processing (code wired; real Pub/Sub resources not created yet)
 
-- [x] Backend publishes to an in-process queue on review creation instead of calling the analyzer
-      inline (`app/services/pubsub_service.py` — asyncio.Queue standing in for a Pub/Sub topic)
-- [x] Worker subscribes, processes, writes result + status back to the store (`app/workers/review_worker.py`)
-- [x] Retry with backoff, max delivery attempts before FAILED (dead-letter queue itself needs real
-      Pub/Sub in Phase 10 — locally, exceeding `MAX_DELIVERY_ATTEMPTS` just marks the review FAILED)
+- [x] `app/services/pubsub_service.py` dispatches on `settings.local_mode` — `true` keeps the
+      in-process `asyncio.Queue`; `false` calls real `google-cloud-pubsub`: `publish()` publishes to
+      `PUBSUB_TOPIC`, `consume()` pulls one message at a time from `PUBSUB_SUBSCRIPTION`. Ack/nack is
+      tracked via a single "pending" ack_id, since `task_done()`/`republish()` are called the same
+      way the local Queue version was (no message argument on `task_done()`) — whichever of the two
+      runs first resolves the message (ack or nack); the other becomes a no-op, since a real message
+      can't be both. **Untested against a live subscription** — no Pub/Sub topic/subscription exists
+      yet (see `infra/setup-gcp-resources.sh`).
+- [x] Worker subscribes, processes, writes result + status back to the store (`app/workers/review_worker.py`);
+      `task_done()` is now `await`ed since acking a real message is a network call.
+- [x] Retry with backoff, max delivery attempts before FAILED — in real mode, `delivery_attempt`
+      comes from Pub/Sub's own redelivery count (`ReceivedMessage.delivery_attempt`, only populated
+      when the subscription has a dead-letter policy — `infra/setup-gcp-resources.sh` sets one up,
+      with Pub/Sub's own dead-letter kicking in at 5 attempts as a backstop beyond the app's
+      `MAX_DELIVERY_ATTEMPTS` default of 3).
 - [x] Frontend polls status through QUEUED → ANALYZING → COMPLETED / FAILED (+ CANCELLED status
       value modeled but no UI path cancels a QUEUED review yet — not in the MVP checklist)
 - [x] Retry action on FAILED reviews (`POST /api/reviews/{id}/retry`, wired to the UI)
 
-## Phase 6 — Historical learning (RAG; category+keyword retrieval standing in for real Vector Search)
+## Phase 6 — Historical learning (RAG; code wired, index not deployed yet)
 
 - [x] Historical CSV → validate rows → normalize text → index in memory at startup
       (`app/services/historical_data.py`); malformed rows are skipped with a summary, never crash
-      the run (see `historical_data.load`'s return value, logged on startup)
-- [ ] Real `embedding_service.py` (Vertex AI Embeddings) and `vector_search_service.py` — not built
-      yet; retrieval is currently category-filter + keyword-overlap ranking (see the `ponytail:`
-      comment in `historical_data.find_matches` for what real Phase 6/10 replaces this with)
-- [x] Worker retrieves top-k historical rules and attaches them to the result as context (real
-      Gemini prompt injection is moot until Phase 4 has a real prompt to inject into)
+      the run (see `historical_data.load`'s return value, logged on startup). Also now kept as an
+      `id -> HistoricalRule` map (`_rules_by_id`) so real Vector Search neighbor IDs can resolve
+      back to a row.
+- [x] `find_matches()` dispatches on `settings.local_mode` — `true` keeps the category-filter +
+      keyword-overlap mock (`_find_matches_mock`); `false` calls `_find_matches_vertex`: embeds the
+      submitted code with `google-genai` (`EMBEDDING_MODEL`) and queries a deployed
+      `MatchingEngineIndexEndpoint` (`google-cloud-aiplatform`) for nearest neighbors. **Not runnable
+      yet** — no Vector Search index/endpoint has been provisioned (that's the remaining Phase 3/10
+      infra step: embed `historical-review-rules.csv` and upsert into an index, deploy it to an
+      endpoint, set `VECTOR_SEARCH_INDEX`/`VECTOR_SEARCH_ENDPOINT`).
+- [x] Worker retrieves top-k historical rules and attaches them to the result as context — in real
+      mode this now happens *before* the Gemini call (`review_service.process_review`) so matches
+      become prompt context, per §description in `historical_data._find_matches_vertex`; the mock
+      path still runs retrieval after analysis since it depends on categories Gemini's mock found.
 - [x] Result includes which historical rules matched → renders as "Historical Insight" in the UI
 
-## Phase 7 — Firestore persistence (implemented locally as an in-memory store)
+## Phase 7 — Firestore persistence (code wired; real database not created yet)
 
-- [x] Data model: `{userId: {reviewId: Review}}` in `app/services/firestore_service.py`, matching
-      the `users/{userId}/reviews/{reviewId}` shape from §26 so swapping in a real Firestore client
-      is a small diff, not a rewrite of callers — not yet backed by real Firestore (Phase 10), and
-      not persisted across process restarts (acceptable for local dev, not for the deployed app)
+- [x] `app/services/firestore_service.py` dispatches on `settings.local_mode` — `true` keeps the
+      in-memory `{userId: {reviewId: Review}}` dict; `false` calls real `google-cloud-firestore`
+      (`AsyncClient`) against `users/{userId}/reviews/{reviewId}` (idempotency keys live alongside
+      at `users/{userId}/idempotencyKeys/{key}`), matching §26's shape exactly. **Untested against a
+      live database** — no Firestore database exists yet (`infra/setup-gcp-resources.sh` creates one).
 - [x] Deviation from §26's example schema: the review record also stores the original `code`
       (excluded from the `GET /api/reviews` list response, still present on `GET /api/reviews/{id}`)
       so the result page can show exactly what was reviewed and a retry can re-run analysis without
@@ -176,12 +197,36 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
 - [x] No raw code, secrets, or prompts appear in log statements (checked every `logger.*` call by
       hand — they log `reviewId`, `language`, `score`, `attempt`, `errorType` only)
 
-## Phase 10 — Deployment (BLOCKED until sandbox access email arrives)
+## Phase 10 — Deployment (project exists; no GCP resources created yet)
 
-Do not create billed GCP resources before then. Order once unblocked:
-GCP project → enable APIs → Vertex AI + Gemini + Embeddings + Vector Search → Firestore → Pub/Sub →
+The "sandbox access email" blocker is gone — a real GCP project is available — but no billed
+resources have actually been created from this repo yet; nothing here has run against live GCP.
+Order: enable APIs → Vertex AI + Gemini + Embeddings + Vector Search → Firestore → Pub/Sub →
 Cloud Storage bucket → build containers → deploy Cloud Run (frontend/backend/worker) → run
 ingestion → end-to-end test.
+
+- [x] `scripts/ingest_historical_data.py` written (Phase 3/10): embeds `historical-review-rules.csv`
+      via Vertex AI Embeddings, uploads to Cloud Storage, and (opt-in flags, not run automatically)
+      creates+deploys a Vector Search Index/Endpoint or re-imports into an existing one. Only its
+      CSV-parsing has actually been exercised end to end so far — `--dry-run`'s embedding call needs
+      Application Default Credentials, which this dev machine doesn't have configured; running from
+      Cloud Shell (already authenticated) instead.
+- [x] `infra/setup-gcp-resources.sh` written: enables the required APIs, creates the Pub/Sub
+      topic+subscription (with a dead-letter policy, needed so `delivery_attempt` populates — see
+      Phase 5), the Firestore database, the historical-data Cloud Storage bucket, and an Artifact
+      Registry Docker repo. Not run yet.
+- [x] `infra/cloud-run/deploy-backend.sh` and `deploy-frontend.sh` written: build+push each image and
+      `gcloud run deploy`. Backend deploy uses `--min-instances=1 --no-cpu-throttling` since the
+      review worker is a background asyncio task inside the API process, not a per-request handler —
+      without those flags Cloud Run would stall or kill it between requests. Deploy order matters:
+      backend first (frontend needs its URL as a Vite build arg), then frontend, then re-run the
+      backend deploy with `CORS_ORIGINS` set to the frontend's URL. Not run yet.
+- [x] Both Dockerfiles updated to listen on Cloud Run's `$PORT` (shell-form `CMD` so it expands;
+      `docker-compose.yml`'s port mappings updated to match, host ports unchanged).
+- Currently using a Qwiklabs/Google Cloud Skills Boost temporary project
+  (`qwiklabs-gcp-01-a7e8659adaae`) for hands-on testing — by design, throwaway: whatever gets
+  provisioned there (Vector Search index, Pub/Sub, Firestore, Cloud Run services) disappears when
+  the lab session ends. Treat it as a place to verify each phase works, not as the final deployment.
 
 ## Explicitly deferred (not MVP)
 

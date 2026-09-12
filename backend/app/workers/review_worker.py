@@ -20,4 +20,4 @@ async def run_worker() -> None:
             await asyncio.sleep(RETRY_BACKOFF_SECONDS)
             await pubsub_service.republish(message)
         finally:
-            pubsub_service.task_done()
+            await pubsub_service.task_done()

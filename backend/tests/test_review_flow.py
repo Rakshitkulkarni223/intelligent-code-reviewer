@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 import pytest
@@ -132,7 +133,7 @@ def test_hardcoded_secret_is_flagged_but_never_logged_verbatim(client, caplog):
 
 
 def test_gemini_service_scores_lower_for_high_severity_issue():
-    clean, _ = gemini_service.analyze_code(CLEAN_CODE, "python")
-    risky, categories = gemini_service.analyze_code(SQL_INJECTION_CODE, "python")
+    clean, _ = asyncio.run(gemini_service.analyze_code(CLEAN_CODE, "python"))
+    risky, categories = asyncio.run(gemini_service.analyze_code(SQL_INJECTION_CODE, "python"))
     assert risky.score < clean.score
     assert "security" in categories

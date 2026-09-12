@@ -13,5 +13,8 @@ FROM node:20-slim
 WORKDIR /app
 RUN npm install -g serve
 COPY --from=build /app/dist ./dist
-EXPOSE 4173
-CMD ["serve", "-s", "dist", "-l", "4173"]
+EXPOSE 8080
+# Cloud Run injects $PORT (8080); shell form so it actually expands. Local
+# docker-compose maps 4173:8080 so it keeps using the familiar Vite port on
+# the host side.
+CMD serve -s dist -l ${PORT:-8080}

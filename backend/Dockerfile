@@ -11,6 +11,9 @@ COPY backend/app ./app
 COPY data /data
 
 ENV HISTORICAL_DATA_PATH=/data/historical-review-rules.csv
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Cloud Run injects $PORT (8080) and expects the container to listen on it;
+# local docker-compose maps 8000:8000 so PORT there is set to 8000 explicitly.
+# Shell form (not exec array form) so ${PORT} actually expands.
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}

@@ -27,6 +27,19 @@ class HistoricalMatch(BaseModel):
     description: str
 
 
+class GeminiModelOutput(BaseModel):
+    """Shape Gemini itself is asked to produce, via response_schema. Excludes
+    historicalMatches -- those come from our own retrieval step, not the
+    model, and are attached afterward to build a GeminiAnalysis."""
+
+    score: float = Field(ge=1, le=10)
+    summary: str
+    strengths: list[str] = []
+    issues: list[Issue] = []
+    recommendations: list[str] = []
+    dimensions: ScoreDimensions
+
+
 class GeminiAnalysis(BaseModel):
     """Validated shape of the AI analysis, whether produced by the real Gemini
     call or the local mock analyzer. Anything that doesn't fit this schema is
