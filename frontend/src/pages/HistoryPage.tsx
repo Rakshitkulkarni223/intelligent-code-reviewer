@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { listReviews } from '../services/reviews';
 import type { Review } from '../types';
 import { SUPPORTED_LANGUAGES } from '../lib/languageDetect';
+import { formatStatus, reviewLinkTo, statusColor } from '../lib/reviewStatus';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import LanguageBadge from '../components/LanguageBadge';
@@ -22,7 +23,7 @@ export default function HistoryPage() {
 
   const filtered = useMemo(() => {
     if (!reviews) return [];
-    let result = reviews.filter((r) => r.status === 'COMPLETED');
+    let result = reviews;
     if (language !== 'all') result = result.filter((r) => r.language === language);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -70,12 +71,13 @@ export default function HistoryPage() {
         <EmptyState icon="🔍" title="No reviews match your filters" />
       ) : (
         filtered.map((r) => (
-          <Link key={r.id} to={`/reviews/${r.id}`} className="review-row">
+          <Link key={r.id} to={reviewLinkTo(r)} className="review-row" style={{ gridTemplateColumns: '100px 90px 1fr 80px 100px' }}>
             <LanguageBadge language={r.language} />
+            <span style={{ color: statusColor(r.status), fontSize: 13, fontWeight: 500 }}>{formatStatus(r.status)}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-              {r.result?.summary}
+              {r.result?.summary ?? '—'}
             </span>
-            <span className="review-score">{r.score?.toFixed(1)}</span>
+            <span className="review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
             <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(r.createdAt).toLocaleDateString()}</span>
           </Link>
         ))

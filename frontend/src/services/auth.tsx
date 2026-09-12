@@ -15,7 +15,14 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function loadUser(): AuthUser | null {
   const raw = localStorage.getItem('icr_user');
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem('icr_user');
+    localStorage.removeItem('icr_token');
+    return null;
+  }
 }
 
 // ponytail: dev-only stub auth (email -> local token), swap for Firebase Auth /

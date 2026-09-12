@@ -13,7 +13,7 @@ export default function IssueCard({ issue }: { issue: Issue }) {
         <span className={`severity-badge severity-${issue.severity}`}>{SEVERITY_TEXT[issue.severity]}</span>
         <span className="badge">{issue.category}</span>
         <span className="issue-title">{issue.title}</span>
-        {issue.line !== undefined && <span className="issue-line">Line {issue.line}</span>}
+        {issue.line != null && <span className="issue-line">Line {issue.line}</span>}
       </div>
       <p className="issue-description">{issue.description}</p>
       <div className="issue-suggestion">{issue.suggestion}</div>

@@ -79,12 +79,19 @@ async def process_review(user_id: str, review_id: str, delivery_attempt: int) ->
             analysis, categories = await gemini_service.analyze_code(review.code, language)
             hint_text = " ".join(f"{i.title} {i.suggestion}" for i in analysis.issues)
             matches = await historical_data.find_matches(review.code, language, categories=categories, hint_text=hint_text)
+            analysis.historicalMatches = [
+                HistoricalMatch(type=r.type, description=r.description) for r in matches
+            ]
         else:
-            matches = await historical_data.find_matches(review.code, language)
-            analysis, _categories = await gemini_service.analyze_code(review.code, language, historical_rules=matches)
-        analysis.historicalMatches = [
-            HistoricalMatch(type=r.type, description=r.description) for r in matches
-        ]
+            # Retrieve more candidates than we intend to show -- Vector Search
+            # is a similarity search, not a relevance judgment, so it will
+            # surface topically-related rules that don't actually apply (e.g.
+            # "avoid bare except" for code with no exception handling at all).
+            # gemini_service filters these down to the ones Gemini itself
+            # confirms are relevant, with full view of the actual code, and
+            # sets analysis.historicalMatches directly -- nothing to do here.
+            candidates = await historical_data.find_matches(review.code, language, limit=8)
+            analysis, _categories = await gemini_service.analyze_code(review.code, language, historical_rules=candidates)
         await firestore_service.update_review(
             user_id, review_id,
             status="COMPLETED",

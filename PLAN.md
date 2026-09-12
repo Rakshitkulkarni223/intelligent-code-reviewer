@@ -72,8 +72,15 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       override dropdown; low-confidence detections (top two candidates within 15% of each other)
       show a picker instead of guessing silently
 - [x] Clear/reset with confirmation dialog ("Completed reviews will remain in your history")
-- [x] Review Again button on completed results → links to a fresh NewReviewPage, never mutates
-      the old review
+- [x] Review Again button on completed results → immediately resubmits the same code+language as a
+      new review (`ReviewResultPage.handleReviewAgain`) and navigates to its progress page; never
+      mutates the old review. Originally linked to a blank NewReviewPage instead — changed since a
+      blank form isn't "again." This surfaced a real idempotency-key bug: the key was
+      `sha256(code:language)`, a content hash, so resubmitting identical code collided with the old
+      review and silently returned it instead of creating a new one — exactly the behavior §95 below
+      says must not happen. Fixed by generating the key as a fresh `crypto.randomUUID()` per submit
+      action instead of from content, in both `NewReviewPage` and `ReviewResultPage`; an idempotency
+      key should dedupe retries of *one* attempt, not different attempts with the same content.
 - [x] Progress UI shows product-level steps (code received / language detected / historical
       patterns retrieved / Gemini analyzing / generating recommendations), never infra terms like
       "Pub/Sub"
@@ -95,13 +102,15 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       but intentionally does NOT auto-dedupe submissions — "Review Again" on unchanged code must
       still create a new review, not silently return the old one)
 
-## Phase 4 — Gemini integration (code wired; unverified against a live project)
+## Phase 4 — Gemini integration (verified working end-to-end against real Vertex AI)
 
 - [x] `backend/app/services/gemini_service.py`: `analyze_code()` now dispatches on
       `settings.local_mode` — `true` keeps the regex-based mock (`_analyze_code_mock`), `false` calls
       real Gemini on Vertex AI via `google-genai` (`_analyze_with_gemini`, `client.aio.models.generate_content`
-      with `response_schema=GeminiModelOutput`). Not yet run against a live GCP project/credentials —
-      set `LOCAL_MODE=false` + the `.env.example` GCP vars once available and re-verify.
+      with `response_schema=GeminiModelOutput`). **Verified working**: ran the full app locally with
+      `LOCAL_MODE=false` against the `qwiklabs-gcp-01-a7e8659adaae` project (`GEMINI_MODEL=gemini-2.5-flash`)
+      and drove it with Playwright end to end — submitted a SQL-injection snippet through the real UI and
+      got back a real Gemini-generated score, summary, dimensions, issue, and recommendations.
 - [x] System prompt (`_SYSTEM_INSTRUCTIONS`) explicitly states the submitted code is untrusted data
       wrapped in `--- BEGIN/END UNTRUSTED CODE UNDER REVIEW ---` markers, and that embedded
       instructions in it must never override the system prompt — mirrors the existing prompt-injection
@@ -114,7 +123,7 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
 - [x] Quality score computed from the weighted dimensions in §16, capped 1–10, always paired with
       an explanation, never presented as an exact measurement
 
-## Phase 5 — Async processing (code wired; real Pub/Sub resources not created yet)
+## Phase 5 — Async processing (verified working end-to-end against a real subscription)
 
 - [x] `app/services/pubsub_service.py` dispatches on `settings.local_mode` — `true` keeps the
       in-process `asyncio.Queue`; `false` calls real `google-cloud-pubsub`: `publish()` publishes to
@@ -122,10 +131,26 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       tracked via a single "pending" ack_id, since `task_done()`/`republish()` are called the same
       way the local Queue version was (no message argument on `task_done()`) — whichever of the two
       runs first resolves the message (ack or nack); the other becomes a no-op, since a real message
-      can't be both. **Untested against a live subscription** — no Pub/Sub topic/subscription exists
-      yet (see `infra/setup-gcp-resources.sh`).
+      can't be both. **Verified working** against a real subscription end to end.
 - [x] Worker subscribes, processes, writes result + status back to the store (`app/workers/review_worker.py`);
       `task_done()` is now `await`ed since acking a real message is a network call.
+- [x] **Found and fixed a serious bug**: `run_worker()`'s `while True` loop called `pubsub_service.consume()`
+      *outside* its try/except. In real mode, `consume()` makes a live network call to Pub/Sub roughly
+      once a second while idle; any transient failure from that call (a realistic occurrence over time,
+      not hypothetical) propagated out of the loop and silently killed the worker for good — the task is
+      fire-and-forget (`asyncio.create_task` in `main.py`'s lifespan, nothing ever awaits it), so nothing
+      noticed. The API kept serving 200s throughout, so this was invisible short of noticing reviews had
+      stopped completing. Reproduced: a review submitted stayed unprocessed for over an hour with zero
+      worker log activity in between. Fixed by wrapping `consume()` in its own try/except (log + backoff
+      + `continue`, never let it escape the loop) and adding a `worker_task.add_done_callback` in
+      `main.py` that logs CRITICAL immediately if the task ever exits unexpectedly, so a future regression
+      is caught in seconds instead of discovered by hand hours later.
+- [x] Retry (`POST /api/reviews/{id}/retry`) also had a frontend-only bug: `ReviewProgressPage`'s polling
+      loop deliberately stops recursing once a review reaches `FAILED` (no point polling a dead end), but
+      its `useEffect` only re-runs on `[reviewId, navigate]` — neither changes on retry, so clicking Retry
+      updated the status to `QUEUED` once (optimistically) and then nothing ever polled for what happened
+      next; the screen looked stuck until a manual page refresh. Fixed with a `pollGeneration` counter,
+      bumped on retry and added to the effect's dependency array, to force the polling loop to restart.
 - [x] Retry with backoff, max delivery attempts before FAILED — in real mode, `delivery_attempt`
       comes from Pub/Sub's own redelivery count (`ReceivedMessage.delivery_attempt`, only populated
       when the subscription has a dead-letter policy — `infra/setup-gcp-resources.sh` sets one up,
@@ -135,7 +160,7 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       value modeled but no UI path cancels a QUEUED review yet — not in the MVP checklist)
 - [x] Retry action on FAILED reviews (`POST /api/reviews/{id}/retry`, wired to the UI)
 
-## Phase 6 — Historical learning (RAG; code wired, index not deployed yet)
+## Phase 6 — Historical learning (RAG; verified working end-to-end against a real deployed index)
 
 - [x] Historical CSV → validate rows → normalize text → index in memory at startup
       (`app/services/historical_data.py`); malformed rows are skipped with a summary, never crash
@@ -145,10 +170,25 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
 - [x] `find_matches()` dispatches on `settings.local_mode` — `true` keeps the category-filter +
       keyword-overlap mock (`_find_matches_mock`); `false` calls `_find_matches_vertex`: embeds the
       submitted code with `google-genai` (`EMBEDDING_MODEL`) and queries a deployed
-      `MatchingEngineIndexEndpoint` (`google-cloud-aiplatform`) for nearest neighbors. **Not runnable
-      yet** — no Vector Search index/endpoint has been provisioned (that's the remaining Phase 3/10
-      infra step: embed `historical-review-rules.csv` and upsert into an index, deploy it to an
-      endpoint, set `VECTOR_SEARCH_INDEX`/`VECTOR_SEARCH_ENDPOINT`).
+      `MatchingEngineIndexEndpoint` (`google-cloud-aiplatform`) for nearest neighbors. **Verified
+      working**: a brute-force (not Tree-AH — see `scripts/ingest_historical_data.py`'s comments)
+      index with `SHARD_SIZE_SMALL` is deployed on an `e2-standard-2` endpoint (`SHARD_SIZE_MEDIUM`,
+      the default for 768-dim brute-force indexes, requires `e2-standard-16`+ and silently failed to
+      deploy on `e2-standard-2` the first time), and returns real semantically-relevant historical
+      rules end to end through the UI.
+- [x] **Relevance filtering, not just retrieval**: real-mode retrieval alone (top-k by similarity)
+      surfaced topically-related but inapplicable rules — e.g. `def c(a, b): x = a*b; return x`
+      matched "break up functions longer than 50 lines" and "avoid bare except clauses," neither of
+      which the code actually has, purely because "function" and "quality" are broad, similarity-prone
+      terms. Fixed by retrieving more candidates (`limit=8` in `review_service.py`, up from 3) and
+      having Gemini itself judge which candidates it was shown genuinely apply, with full view of the
+      real code, in the same call (`GeminiModelOutput.relevantHistoricalRuleIds`,
+      `gemini_service._analyze_with_gemini` filters candidates down to those ids before setting
+      `analysis.historicalMatches`) — no extra round-trip needed. `review_service.py` no longer
+      overwrites `historicalMatches` after the real-mode Gemini call (mock mode is unaffected: it still
+      assigns matches itself, since it has no relevance step of its own). Frontend copy
+      (`HistoricalInsight.tsx`) changed from "N historical patterns matched" to "N relevant historical
+      rule(s), confirmed by Gemini" to not overstate what retrieval alone proves.
 - [x] Worker retrieves top-k historical rules and attaches them to the result as context — in real
       mode this now happens *before* the Gemini call (`review_service.process_review`) so matches
       become prompt context, per §description in `historical_data._find_matches_vertex`; the mock

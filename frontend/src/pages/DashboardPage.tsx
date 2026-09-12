@@ -6,6 +6,7 @@ import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import LanguageBadge from '../components/LanguageBadge';
 import ReviewTimeline from '../components/ReviewTimeline';
+import { formatStatus, reviewLinkTo, statusColor } from '../lib/reviewStatus';
 
 function countBy<T>(items: T[], key: (item: T) => string): [string, number][] {
   const counts: Record<string, number> = {};
@@ -66,7 +67,7 @@ export default function DashboardPage() {
     );
   }
 
-  const completed = reviews.filter((r) => r.status === 'COMPLETED' && r.score !== undefined);
+  const completed = reviews.filter((r) => r.status === 'COMPLETED' && r.score != null);
   const avgScore = completed.length ? completed.reduce((s, r) => s + (r.score ?? 0), 0) / completed.length : undefined;
   const improvement = completed.length >= 2 ? (completed[0].score ?? 0) - (completed[completed.length - 1].score ?? 0) : undefined;
   const categoryCounts = countBy(completed.flatMap((r) => r.result?.issues ?? []), (i) => i.category);
@@ -135,10 +136,10 @@ export default function DashboardPage() {
 
       <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent reviews</h2>
       {reviews.slice(0, 5).map((r) => (
-        <Link key={r.id} to={r.status === 'COMPLETED' ? `/reviews/${r.id}` : `/reviews/${r.id}/progress`} className="review-row">
+        <Link key={r.id} to={reviewLinkTo(r)} className="review-row">
           <LanguageBadge language={r.language} />
-          <span>{r.status === 'COMPLETED' ? 'Completed' : r.status.toLowerCase()}</span>
-          <span className="review-score">{r.score !== undefined ? r.score.toFixed(1) : '—'}</span>
+          <span style={{ color: statusColor(r.status), fontWeight: 500 }}>{formatStatus(r.status)}</span>
+          <span className="review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(r.createdAt).toLocaleDateString()}</span>
         </Link>
       ))}

@@ -29,8 +29,17 @@ class HistoricalMatch(BaseModel):
 
 class GeminiModelOutput(BaseModel):
     """Shape Gemini itself is asked to produce, via response_schema. Excludes
-    historicalMatches -- those come from our own retrieval step, not the
-    model, and are attached afterward to build a GeminiAnalysis."""
+    historicalMatches -- those aren't a field the model fills in directly;
+    relevantHistoricalRuleIds below is how it participates in building them.
+
+    Vector Search's retrieval is by semantic similarity, not proof of
+    relevance -- it can easily surface a rule that's topically related but
+    doesn't actually apply (see historical_data._find_matches_vertex's
+    docstring). relevantHistoricalRuleIds is Gemini's own judgment, made with
+    full view of the actual code, of which of the candidate rules it was
+    shown genuinely apply; the caller filters the candidates down to only
+    those ids before showing anything to the user as a "match".
+    """
 
     score: float = Field(ge=1, le=10)
     summary: str
@@ -38,6 +47,7 @@ class GeminiModelOutput(BaseModel):
     issues: list[Issue] = []
     recommendations: list[str] = []
     dimensions: ScoreDimensions
+    relevantHistoricalRuleIds: list[str] = []
 
 
 class GeminiAnalysis(BaseModel):

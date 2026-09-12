@@ -13,11 +13,6 @@ const MAX_LINES = 50_000;
 const ACCEPTED_EXTENSIONS = '.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.go,.rs,.rb,.php';
 const AMBIGUITY_GAP = 0.15;
 
-async function sha256(text: string) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 export default function NewReviewPage() {
   const [code, setCode] = useState('');
   const [filename, setFilename] = useState<string | undefined>();
@@ -72,8 +67,7 @@ export default function NewReviewPage() {
     if (!code.trim() || tooLarge || tooManyLines) return;
     setSubmitting(true);
     try {
-      const idempotencyKey = await sha256(`${code}:${language}`);
-      const { reviewId } = await createReview(code, language, idempotencyKey);
+      const { reviewId } = await createReview(code, language, crypto.randomUUID());
       navigate(`/reviews/${reviewId}/progress`);
     } catch (e) {
       show(e instanceof Error ? e.message : 'Failed to submit review', 'error');

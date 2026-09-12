@@ -5,18 +5,18 @@ export default function HistoricalInsight({ matches }: { matches: HistoricalMatc
   if (matches.length === 0) {
     return (
       <div className="card">
-        <EmptyState compact icon="🕘" title="No historical patterns matched" description="This submission didn't closely resemble prior review rules." />
+        <EmptyState compact icon="🕘" title="No relevant historical rules" description="Nothing in this team's past review rules was confirmed to apply to this submission." />
       </div>
     );
   }
   return (
     <div className="card">
       <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 0 }}>
-        {matches.length} historical pattern{matches.length === 1 ? '' : 's'} matched this submission.
+        {matches.length} relevant historical rule{matches.length === 1 ? '' : 's'}, confirmed by Gemini against this code.
       </p>
       {matches.map((m, i) => (
         <div className="historical-item" key={i}>
-          <div className="historical-type">{m.type}</div>
+          <div className="historical-type">✓ {m.type}</div>
           <div className="historical-desc">"{m.description}"</div>
         </div>
       ))}
