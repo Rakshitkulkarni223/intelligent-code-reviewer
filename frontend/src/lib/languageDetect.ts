@@ -74,3 +74,11 @@ export function detectLanguage(code: string, filename?: string): LanguageDetecti
 export const SUPPORTED_LANGUAGES = [
   'python', 'javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'ruby', 'php', 'sql',
 ];
+
+// Capitalizing the raw language code gets most languages right (python ->
+// Python) but mangles the ones with non-standard casing in their real name.
+const LABEL_OVERRIDES: Record<string, string> = { cpp: 'C++', sql: 'SQL', php: 'PHP' };
+
+export function languageLabel(lang: string): string {
+  return LABEL_OVERRIDES[lang] ?? lang.charAt(0).toUpperCase() + lang.slice(1);
+}

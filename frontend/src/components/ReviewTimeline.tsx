@@ -18,7 +18,7 @@ export default function ReviewTimeline({ scores }: Props) {
 
   return (
     <svg width={width} height={height} role="img" aria-label={`Score trend across last ${scores.length} reviews`}>
-      <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth={2} />
+      <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth={2} className="timeline-line" />
     </svg>
   );
 }

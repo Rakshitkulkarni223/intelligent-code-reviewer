@@ -72,10 +72,12 @@ button {
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
+  position: relative;
   width: 232px;
   flex-shrink: 0;
   background: var(--surface);
@@ -83,16 +85,58 @@ button {
   display: flex;
   flex-direction: column;
   padding: 22px 14px;
+  overflow-y: auto;
+  transition: width 0.18s ease;
 }
+
+/* Floats on the sidebar's border, half in/half out -- a common pattern
+   (VSCode, Notion, Linear) that keeps it out of the way of the brand and
+   nav content entirely, rather than competing for space in either row. */
+.sidebar-toggle {
+  position: absolute;
+  top: 13.5px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  box-shadow: var(--shadow-sm);
+  z-index: 5;
+}
+.sidebar-toggle:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
+.sidebar-toggle svg { transition: transform 0.18s ease; }
+
+.sidebar.collapsed { width: 76px; }
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .nav-section-label,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .account-email { display: none; }
+.sidebar.collapsed .sidebar-brand { justify-content: center; }
+.sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+.sidebar.collapsed .nav-link { justify-content: center; padding: 10px; gap: 0; }
+.sidebar.collapsed .sidebar-footer { flex-direction: column; gap: 10px; padding-bottom: 2px; }
 
 .sidebar-brand {
   font-weight: 700;
   font-size: 15.5px;
   letter-spacing: -0.01em;
-  padding: 2px 10px 24px;
+  padding: 2px 10px 18px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 9px;
+  /* A fixed (not min-) height so this row is exactly as tall collapsed
+     (just the 9px dot) as expanded (dot + text) -- otherwise the dot shifts
+     upward when collapsed, out of alignment with the floating toggle's
+     fixed `top` offset. */
+  height: 24px;
 }
 
 .sidebar-brand .dot {
@@ -101,6 +145,15 @@ button {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-muted), 0 0 10px rgba(124, 135, 255, 0.6);
+}
+
+.nav-section-label {
+  padding: 0 12px 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .nav-link {
@@ -123,31 +176,61 @@ button {
 .nav-link:hover { background: var(--surface-hover); color: var(--text); }
 .nav-link.active { background: var(--accent-muted); color: var(--accent); }
 .nav-link.active svg { opacity: 1; }
-.nav-link.active::before {
-  content: '';
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 16px;
-  border-radius: 999px;
-  background: var(--accent);
-}
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 14px 10px 0;
+  padding: 14px 6px 0;
   border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--accent-hover), var(--accent-dim));
+  color: #080a12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.account-email {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.account-signout {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.account-signout:hover { background: var(--surface-hover); color: var(--danger); }
 
 .main-content {
   flex: 1;
   min-width: 0;
   padding: 36px 44px;
   max-width: 1400px;
+  overflow-y: auto;
 }
 
 .page-header {
@@ -216,9 +299,25 @@ button {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 28px;
+}
+@media (max-width: 860px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .stat-grid { grid-template-columns: 1fr; }
+}
+
+.dashboard-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+@media (max-width: 720px) {
+  .dashboard-split { grid-template-columns: 1fr; }
 }
 
 .stat-card {
@@ -240,6 +339,16 @@ button {
   opacity: 0.7;
 }
 
+/* Draws the score-trend line in from left to right on mount. 3000 comfortably
+   exceeds the polyline's actual length for any realistic number of points --
+   the dash only needs to be at least as long as the path itself. */
+.timeline-line {
+  stroke-dasharray: 3000;
+  stroke-dashoffset: 3000;
+  animation: draw-timeline-line 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes draw-timeline-line { to { stroke-dashoffset: 0; } }
+
 .stat-label { color: var(--text-muted); font-size: 12.5px; font-weight: 500; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
 .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
 .stat-value.positive { color: var(--success); }
@@ -255,10 +364,15 @@ button {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.4;
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   color: var(--text-muted);
   text-transform: capitalize;
+  /* As a direct child of a grid row (e.g. .review-row), a grid item
+     stretches to fill its column by default -- without this, the pill's
+     border stretches the full column width instead of hugging its text. */
+  width: fit-content;
 }
 
 .severity-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; }
@@ -325,6 +439,116 @@ button {
 }
 .select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
 .select:hover { border-color: var(--text-faint); }
+
+/* Trigger button opens a popover instead of showing raw native date inputs
+   inline -- browsers render those with an unstyleable "dd-mm-yyyy" segment
+   look that clashes with the custom-styled selects next to it. */
+.date-range-filter { position: relative; }
+.date-range-trigger { width: auto; text-align: left; white-space: nowrap; }
+.date-range-trigger.active { border-color: var(--accent); color: var(--accent); }
+
+.date-range-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 220px;
+  padding: 16px;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.date-range-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-muted); }
+
+.date-input {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+  color-scheme: dark;
+  transition: border-color 0.15s ease;
+}
+.date-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
+/* The native calendar icon renders dark-on-dark by default; invert it so
+   it's visible against this app's dark surfaces. */
+.date-input::-webkit-calendar-picker-indicator { filter: invert(0.6); cursor: pointer; }
+
+.date-range-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; }
+
+/* Custom dropdown (SelectMenu) -- same popover treatment as the date-range
+   filter, so every control in the filter bar opens the same way instead of
+   a native <select>'s unstyleable OS menu breaking the dark theme. */
+.dropdown { position: relative; }
+.dropdown-trigger { text-align: left; white-space: nowrap; }
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.dropdown-item:hover { background: var(--surface-hover); color: var(--text); }
+.dropdown-item.selected { color: var(--accent); }
+.dropdown-item svg { flex-shrink: 0; }
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 22px;
+}
+.pagination-pages { display: flex; align-items: center; gap: 4px; }
+.pagination-page {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.pagination-page:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
+.pagination-page.active { background: var(--accent-muted); border-color: var(--accent); color: var(--accent); }
+.pagination-ellipsis { color: var(--text-faint); padding: 0 2px; font-size: 13px; }
 
 /* ---- code input (New Review) ---- */
 
@@ -544,6 +768,29 @@ button {
 .review-row:hover { border-color: var(--border-strong); background: var(--surface-hover); transform: translateX(2px); }
 .review-score { font-weight: 700; font-variant-numeric: tabular-nums; }
 
+/* Dashboard's "Recent reviews" -- unlike .review-row (a table-like grid built
+   for a summary column that fills the middle), this has only badge + status
+   on the left and score + date on the right, so a flex layout with one
+   flexible gap in between reads cleaner than a mostly-empty grid column. */
+.recent-review-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  background: linear-gradient(180deg, var(--surface-raised), var(--surface));
+  text-decoration: none;
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+.recent-review-row:hover { border-color: var(--border-strong); background: var(--surface-hover); transform: translateX(2px); }
+.recent-review-meta { margin-left: auto; display: flex; align-items: center; gap: 22px; }
+.recent-review-score { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; }
+.recent-review-date { color: var(--text-muted); font-size: 13px; width: 84px; text-align: right; }
+
 /* ---- empty / error states ---- */
 
 .state-block {
@@ -636,15 +883,47 @@ button {
 .modal-body { color: var(--text-muted); font-size: 14px; margin-bottom: 20px; line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
+.mobile-signout { display: none; }
+
 @media (max-width: 720px) {
   .app-shell { flex-direction: column; }
-  .sidebar { width: 100%; flex-direction: row; align-items: center; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border); padding: 12px; }
-  .sidebar-brand { padding: 0 10px 0 0; white-space: nowrap; flex-shrink: 0; }
-  .sidebar nav { display: flex; gap: 4px; flex-shrink: 0; }
-  .nav-link { white-space: nowrap; }
+  .sidebar, .sidebar.collapsed { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding: 10px 12px; gap: 4px; }
+  .sidebar-brand { padding: 0 10px 0 0; white-space: nowrap; flex-shrink: 0; border-bottom: none; margin-bottom: 0; }
+  .nav-section-label { display: none; }
+  .nav-links { display: flex; gap: 2px; flex: 1; min-width: 0; }
+  .nav-link { white-space: nowrap; flex-shrink: 0; }
   .sidebar-footer { display: none; }
+  /* Collapse is a desktop-only affordance -- the mobile bar is already
+     compact, so the toggle button has nothing useful to do here. */
+  .sidebar-toggle { display: none; }
+  .mobile-signout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    margin-left: 4px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .mobile-signout:hover { background: var(--surface-hover); color: var(--text); }
   .main-content { padding: 20px; }
   .review-row { grid-template-columns: 1fr; gap: 4px; }
+  .recent-review-row { flex-wrap: wrap; }
+  .recent-review-meta { margin-left: 0; width: 100%; justify-content: space-between; }
   .result-layout { grid-template-columns: 1fr; }
   .result-sidebar { position: static; }
+}
+
+/* Below 720px there's room for icon + label; below this, only icons fit
+   without either clipping a nav item or forcing horizontal scroll. */
+@media (max-width: 480px) {
+  .brand-text { display: none; }
+  .nav-label { display: none; }
+  .nav-links { justify-content: space-between; }
+  .nav-link { padding: 8px; margin-bottom: 0; }
 }

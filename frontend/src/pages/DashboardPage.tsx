@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { listReviews } from '../services/reviews';
 import type { Review } from '../types';
+import CategoryPieChart from '../components/CategoryPieChart';
+import DistributionBar from '../components/DistributionBar';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import LanguageBadge from '../components/LanguageBadge';
 import ReviewTimeline from '../components/ReviewTimeline';
-import { formatStatus, reviewLinkTo, statusColor } from '../lib/reviewStatus';
+import StatusBadge from '../components/StatusBadge';
+import { reviewLinkTo } from '../lib/reviewStatus';
 
 function countBy<T>(items: T[], key: (item: T) => string): [string, number][] {
   const counts: Record<string, number> = {};
@@ -14,24 +17,11 @@ function countBy<T>(items: T[], key: (item: T) => string): [string, number][] {
   return Object.entries(counts).sort((a, b) => b[1] - a[1]);
 }
 
-function BreakdownBars({ title, entries, emptyText }: { title: string; entries: [string, number][]; emptyText: string }) {
-  const max = Math.max(1, ...entries.map(([, n]) => n));
+function BreakdownCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="card">
-      <div className="stat-label" style={{ marginBottom: 10 }}>{title}</div>
-      {entries.length === 0 ? (
-        <p style={{ color: 'var(--text-faint)', fontSize: 13, margin: 0 }}>{emptyText}</p>
-      ) : (
-        entries.map(([label, count]) => (
-          <div className="score-bar-row" key={label}>
-            <span className="score-bar-label" style={{ textTransform: 'capitalize' }}>{label}</span>
-            <span className="score-bar-track" role="img" aria-label={`${label}: ${count}`}>
-              <span className="score-bar-fill" style={{ width: `${(count / max) * 100}%` }} />
-            </span>
-            <span className="score-bar-value">{count}</span>
-          </div>
-        ))
-      )}
+      <div className="stat-label" style={{ marginBottom: 14 }}>{title}</div>
+      {children}
     </div>
   );
 }
@@ -79,7 +69,10 @@ export default function DashboardPage() {
   const latestScore = completed[0]?.score ?? undefined;
   const bestScore = completed.length ? Math.max(...completed.map((r) => r.score ?? 0)) : undefined;
   const improvement = completed.length >= 2 ? (completed[0].score ?? 0) - (completed[completed.length - 1].score ?? 0) : undefined;
-  const categoryCounts = countBy(completed.flatMap((r) => r.result?.issues ?? []), (i) => i.category);
+  // Gemini doesn't always return a category with consistent casing ("Security"
+  // vs "security") between calls -- normalize before grouping so those don't
+  // count as two different categories on the dashboard.
+  const categoryCounts = countBy(completed.flatMap((r) => r.result?.issues ?? []), (i) => i.category.toLowerCase());
   const topCategory = categoryCounts[0]?.[0];
   const languageCounts = countBy(reviews, (r) => r.language);
   const scoresOldestFirst = [...completed].reverse().map((r) => r.score ?? 0);
@@ -127,16 +120,18 @@ export default function DashboardPage() {
         </div>
         <div className="stat-card">
           <div className="stat-label">Improvement</div>
-          <div className={`stat-value ${improvement === undefined ? '' : improvement >= 0 ? 'positive' : 'negative'}`}>
-            {improvement === undefined ? 'Not enough data yet' : `${improvement >= 0 ? '+' : ''}${improvement.toFixed(1)}`}
-          </div>
+          {improvement === undefined ? (
+            <div className="stat-value" style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-muted)' }}>Not enough data yet</div>
+          ) : (
+            <div className={`stat-value ${improvement >= 0 ? 'positive' : 'negative'}`}>
+              {improvement >= 0 ? '+' : ''}{improvement.toFixed(1)}
+            </div>
+          )}
         </div>
-        {topCategory && (
-          <div className="stat-card">
-            <div className="stat-label">Most common issue</div>
-            <div className="stat-value" style={{ fontSize: 18, textTransform: 'capitalize' }}>{topCategory}</div>
-          </div>
-        )}
+        <div className="stat-card">
+          <div className="stat-label">Most common issue</div>
+          <div className="stat-value" style={{ fontSize: 18, textTransform: 'capitalize' }}>{topCategory ?? '—'}</div>
+        </div>
       </div>
 
       {scoresOldestFirst.length >= 2 && (
@@ -146,18 +141,24 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 28 }}>
-        <BreakdownBars title="Language distribution" entries={languageCounts} emptyText="No submissions yet." />
-        <BreakdownBars title="Issue frequency by category" entries={categoryCounts} emptyText="No issues found across your reviews." />
+      <div className="dashboard-split">
+        <BreakdownCard title="Language distribution">
+          <DistributionBar entries={languageCounts} emptyText="No submissions yet." />
+        </BreakdownCard>
+        <BreakdownCard title="Issue frequency by category">
+          <CategoryPieChart entries={categoryCounts} emptyText="No issues found across your reviews." />
+        </BreakdownCard>
       </div>
 
       <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent reviews</h2>
       {reviews.slice(0, 5).map((r) => (
-        <Link key={r.id} to={reviewLinkTo(r)} className="review-row">
+        <Link key={r.id} to={reviewLinkTo(r)} className="recent-review-row">
           <LanguageBadge language={r.language} />
-          <span style={{ color: statusColor(r.status), fontWeight: 500 }}>{formatStatus(r.status)}</span>
-          <span className="review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(r.createdAt).toLocaleDateString()}</span>
+          <StatusBadge status={r.status} />
+          <span className="recent-review-meta">
+            <span className="recent-review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
+            <span className="recent-review-date">{new Date(r.createdAt).toLocaleDateString()}</span>
+          </span>
         </Link>
       ))}
     </div>
