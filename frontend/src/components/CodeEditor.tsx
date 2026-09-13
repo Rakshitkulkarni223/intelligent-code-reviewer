@@ -1,4 +1,16 @@
-import Editor, { type BeforeMount } from '@monaco-editor/react';
+import { useEffect, useRef } from 'react';
+import Editor, { type BeforeMount, type Monaco, type OnMount } from '@monaco-editor/react';
+
+type MonacoEditorInstance = Parameters<OnMount>[0];
+
+export interface EditorMarker {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+  message: string;
+  severity: 'error' | 'warning';
+}
 
 const THEME_NAME = 'code-reviewer-dark';
 
@@ -73,14 +85,45 @@ interface Props {
   readOnly?: boolean;
   height?: string;
   ariaLabel?: string;
+  /** Inline error/warning squiggles, e.g. from a validation result. Cleared
+   * automatically whenever this prop becomes empty/undefined -- callers
+   * don't need to clear them manually on code or language change. */
+  markers?: EditorMarker[];
 }
 
-export default function CodeEditor({ value, language, onChange, readOnly, height = '420px', ariaLabel }: Props) {
+const MARKER_OWNER = 'code-validation';
+
+export default function CodeEditor({ value, language, onChange, readOnly, height = '420px', ariaLabel, markers }: Props) {
+  const editorRef = useRef<MonacoEditorInstance | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
+
+  const handleMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+  };
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+
+    monaco.editor.setModelMarkers(
+      model,
+      MARKER_OWNER,
+      (markers ?? []).map((m) => ({
+        ...m,
+        severity: m.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+      })),
+    );
+  }, [markers]);
+
   return (
     <Editor
       height={height}
       theme={THEME_NAME}
       beforeMount={defineTheme}
+      onMount={handleMount}
       language={MONACO_LANGUAGE_MAP[language] ?? 'plaintext'}
       value={value}
       onChange={(v) => onChange?.(v ?? '')}

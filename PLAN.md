@@ -219,7 +219,8 @@ ScoreCard, IssueCard, IssueList, HistoricalInsight, ReviewTimeline, EmptyState, 
       viewport — see session notes), loading/empty/error states across all pages
 - [x] Confirm Clear/Review Again/Retry all behave per §21/§22/§31 (no destructive surprises) —
       verified in browser: Clear requires confirmation and never touches saved reviews, Review
-      Again links to a fresh NewReviewPage, Retry only appears on FAILED reviews (409 otherwise)
+      Again resubmits the same code as a new review (see Phase 2 note — this changed after launch),
+      Retry only appears on FAILED reviews (409 otherwise)
 
 ## Phase 9 — Security pass
 
@@ -267,6 +268,92 @@ ingestion → end-to-end test.
   (`qwiklabs-gcp-01-a7e8659adaae`) for hands-on testing — by design, throwaway: whatever gets
   provisioned there (Vector Search index, Pub/Sub, Firestore, Cloud Run services) disappears when
   the lab session ends. Treat it as a place to verify each phase works, not as the final deployment.
+
+## Phase 11 — Pre-review code validation (not in the original spec; added afterward)
+
+- [x] `POST /api/code/validate` (`app/api/code_validation.py`) + `app/services/code_validators.py`:
+      checks syntax/completeness *before* Review Code calls Gemini, so obviously incomplete input
+      (`def`, `function`, `{`, ...) doesn't spend a review on it. Never executes, imports, or shells
+      out to run the submitted code — see the module's own docstring for the full reasoning.
+- [x] Python gets a real check: `ast.parse` + `compile(..., "exec")` (compiling to a code object never
+      executes it — only `exec()`-ing the result would; this stays a pure syntax check). Using both
+      matters: `ast.parse` alone misses semantic-during-compile errors like module-level `return`.
+- [x] JavaScript/TypeScript/Java/SQL/HTML get a heuristic (not real-parser) validator — delimiter/
+      string/comment balance plus a small set of "obviously still typing this" trailing patterns, each
+      clearly labeled `<language>-heuristic` in the response so it's never confused with a real parse.
+      No JS/TS parser, Java compiler, or SQL parser is available to the backend (the frontend's
+      TypeScript devDependency lives in frontend/node_modules, which the backend container never has —
+      shelling out to it would silently break in any deployment that doesn't co-locate the two).
+- [x] C/C++ and Go/Rust/Ruby/PHP report `validation_unavailable` rather than a fake pass — this
+      environment has no `gcc`/`g++` (matches the same finding from `infra/setup-gcp-resources.sh`'s
+      review — see Phase 10), and the other four just don't have a validator built yet. This status
+      never blocks Review Code; see `NON_BLOCKING_STATUSES` in `NewReviewPage.tsx`.
+- [x] "Compile / Run" is intentionally **not implemented and not shown in the UI** — real sandboxed
+      execution (CPU/memory/network/filesystem limits) needs infrastructure this environment doesn't
+      have (no Docker, no compilers). A first pass added the button disabled with an explanatory
+      tooltip; removed on request rather than leave a permanently-disabled control with no near-term
+      path to working. ponytail: add a real sandboxed execution backend (e.g. a Docker-based or hosted
+      code-execution service) and the button back together, rather than building unsafe local
+      execution to fill the gap in the meantime.
+- [x] Frontend: `useCodeValidation` hook (click-triggered, not per-keystroke — debounced
+      auto-validation was the other spec-sanctioned option but wasn't built) with `AbortController`-based
+      stale-response protection, `ValidationStatus` for the message/line/column display, and Monaco
+      error markers via `CodeEditor`'s new `markers` prop. Validation result is cleared automatically
+      whenever code or language changes, so Review Code re-disables until the new code is re-validated.
+      Review Code stays disabled until a validation result exists and doesn't block it.
+- [x] 45 backend tests (`tests/test_code_validation.py`) covering empty/whitespace/invisible-unicode/
+      comment-only input, the spec's own per-language examples, oversized payloads (413), malformed
+      requests (422), and that a validator crash degrades to `validation_unavailable` instead of a 500
+      or a leaked traceback.
+- Known limitations: the heuristic validators can't catch a semantically-wrong-but-delimiter-balanced
+  mistake (e.g. an invalid TypeScript type annotation) the way a real parser would; Python's message-
+  based incomplete/syntax_error/indentation classification depends on CPython's exact wording, stable
+  since 3.10 but not a documented guarantee. Recommended next step: a real parser per heuristic
+  language (e.g. an embedded tree-sitter grammar) if these gaps prove to matter in practice.
+
+## Phase 12 — Review versioning, comparison & failure classification
+
+Full spec: `docs/REVIEW_VERSION_METRICS_PROMPT.md`. Builds on the resubmission-caching added at the
+end of Phase 8 (`isResubmission`/`previousReviewId`).
+
+- [x] `codeHash` (already existed) is reused as the code-identity key everywhere below; `version`
+      (`Review.version`, `firestore_service.assign_code_version`) is the 1-based index of a codeHash
+      among the distinct code identities a user has submitted, in first-submission order — a
+      resubmission (forced or not) keeps the version it was first assigned rather than incrementing.
+- [x] `force` on `POST /api/reviews` explicitly bypasses the cached-result short-circuit and reruns
+      Gemini on code that already has a COMPLETED review with the same hash ("Review Again Anyway" on
+      the resubmission banner). The resulting review is flagged `excludeFromMetrics` so a deliberate
+      re-run of unchanged code can't inflate the dashboard's averages — `DashboardPage`'s `completed`
+      filter excludes it, `Reviews`/History still show it.
+- [x] `FailureReason` (`SYNTAX_ERROR`/`VALIDATION_ERROR`/`COMPILE_ERROR`/`RUNTIME_ERROR`/
+      `REVIEW_SERVICE_ERROR`/`GEMINI_ERROR`/`TIMEOUT`/`INTERNAL_ERROR`) is set on a `FAILED` review.
+      `review_service._StagedFailure` wraps each pipeline stage (Gemini call vs. Vector Search call)
+      individually so the reason reflects which stage actually raised, rather than guessing from the
+      exception's own type/message. A FAILED review's codeHash is never treated as "already reviewed"
+      (only a COMPLETED review is), so resubmitting the same code after a failure always retries —
+      no special-casing needed beyond that existing rule.
+- [x] `ReviewComparison` (`previousReviewId`, `previousScore`, `scoreChange`, `issuesResolved`,
+      `newIssues`, `remainingIssues`) is computed in `process_review` against
+      `firestore_service.find_latest_completed_excluding` — the user's most recent other completed,
+      scored review, matching the same "per-user trend, not per-code-lineage" scope the dashboard's
+      Latest/Best/Improvement metrics already used. Issue matching uses a stable
+      `(category, normalized title)` key (`review_service._issue_key`) rather than exact text, since
+      Gemini can reword the same underlying issue between two runs.
+- [x] Frontend: `ReviewResultPage` shows a "Compared to your previous review" card when `comparison`
+      is present, a "Review Again Anyway" action on the resubmission banner, and a note when a review
+      is excluded from metrics; `ReviewProgressPage` shows a human-readable message per
+      `FailureReason` instead of the raw backend error string.
+- [x] Backend tests (`test_review_flow.py`): version stays stable across resubmission/forced
+      resubmission, forced resubmission reruns Gemini and is excluded from metrics, comparison is
+      computed correctly (score delta + resolved/new issue counts) against the previous successful
+      review, and a FAILED review can be resubmitted/retried with identical code. 64/64 backend tests
+      passing; frontend type-checks and builds clean; verified live via Playwright against a running
+      local-mode instance (comparison card, force-review button, dashboard averages excluding the
+      forced review all render correctly).
+- Not implemented from the spec: a separate "code versions" list/UI (version is tracked and stored
+  but only surfaced as a number, not its own history view), and per-user aggregate metric documents
+  (Firestore efficiency section) — metrics are still computed client-side from `list_reviews` like
+  the rest of the dashboard, which is fine at this app's scale.
 
 ## Explicitly deferred (not MVP)
 

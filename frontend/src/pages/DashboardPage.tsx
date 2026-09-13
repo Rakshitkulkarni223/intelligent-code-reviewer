@@ -67,8 +67,17 @@ export default function DashboardPage() {
     );
   }
 
-  const completed = reviews.filter((r) => r.status === 'COMPLETED' && r.score != null);
+  // excludeFromMetrics marks a deliberate "Review Again Anyway" re-run of
+  // code that already had a completed review -- counting its score again
+  // would let re-running unchanged code on purpose inflate these numbers.
+  const completed = reviews.filter((r) => r.status === 'COMPLETED' && r.score != null && !r.excludeFromMetrics);
+  // completed[0] is the newest (reviews come back newest-first) -- these are
+  // per-user trend metrics across all code, not per-code-version. A separate
+  // "same code, later attempt" comparison would need to key off codeHash
+  // instead, which isn't what these answer.
   const avgScore = completed.length ? completed.reduce((s, r) => s + (r.score ?? 0), 0) / completed.length : undefined;
+  const latestScore = completed[0]?.score ?? undefined;
+  const bestScore = completed.length ? Math.max(...completed.map((r) => r.score ?? 0)) : undefined;
   const improvement = completed.length >= 2 ? (completed[0].score ?? 0) - (completed[completed.length - 1].score ?? 0) : undefined;
   const categoryCounts = countBy(completed.flatMap((r) => r.result?.issues ?? []), (i) => i.category);
   const topCategory = categoryCounts[0]?.[0];
@@ -102,11 +111,19 @@ export default function DashboardPage() {
       <div className="stat-grid">
         <div className="stat-card">
           <div className="stat-label">Reviews</div>
-          <div className="stat-value">{reviews.length}</div>
+          <div className="stat-value">{completed.length}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Avg Score</div>
+          <div className="stat-label">Overall Average</div>
           <div className="stat-value">{avgScore !== undefined ? avgScore.toFixed(1) : '—'}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Latest Score</div>
+          <div className="stat-value">{latestScore !== undefined ? latestScore.toFixed(1) : '—'}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Best Score</div>
+          <div className="stat-value">{bestScore !== undefined ? bestScore.toFixed(1) : '—'}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Improvement</div>

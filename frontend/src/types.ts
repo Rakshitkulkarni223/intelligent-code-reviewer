@@ -41,6 +41,26 @@ export interface ReviewResult {
   dimensions: ScoreDimensions;
 }
 
+// Mirrors backend/app/schemas/review.py FailureReason -- keep in sync.
+export type FailureReason =
+  | 'SYNTAX_ERROR'
+  | 'VALIDATION_ERROR'
+  | 'COMPILE_ERROR'
+  | 'RUNTIME_ERROR'
+  | 'REVIEW_SERVICE_ERROR'
+  | 'GEMINI_ERROR'
+  | 'TIMEOUT'
+  | 'INTERNAL_ERROR';
+
+export interface ReviewComparison {
+  previousReviewId: string;
+  previousScore: number;
+  scoreChange: number;
+  issuesResolved: number;
+  newIssues: number;
+  remainingIssues: number;
+}
+
 export interface Review {
   id: string;
   language: string;
@@ -54,6 +74,14 @@ export interface Review {
   score?: number;
   result?: ReviewResult;
   error?: string;
+  failureReason?: FailureReason;
+  isResubmission?: boolean;
+  previousReviewId?: string;
+  excludeFromMetrics?: boolean;
+  version?: number;
+  basedOnReviewId?: string;
+  previousSuccessfulReviewId?: string;
+  comparison?: ReviewComparison;
 }
 
 export interface LanguageDetection {
@@ -61,4 +89,37 @@ export interface LanguageDetection {
   confidence: number;
   method: string;
   alternates: { language: string; confidence: number }[];
+}
+
+// Mirrors backend/app/schemas/validation.py -- keep in sync.
+export type ValidationStatus =
+  | 'valid'
+  | 'empty'
+  | 'incomplete'
+  | 'syntax_error'
+  | 'unsupported_language'
+  | 'validation_unavailable';
+
+export type ValidationErrorCode =
+  | 'EMPTY_CODE'
+  | 'INCOMPLETE_CODE'
+  | 'SYNTAX_ERROR'
+  | 'INDENTATION_ERROR'
+  | 'UNBALANCED_DELIMITER'
+  | 'UNSUPPORTED_LANGUAGE'
+  | 'VALIDATOR_UNAVAILABLE'
+  | 'INTERNAL_VALIDATION_ERROR';
+
+export interface ValidationResult {
+  valid: boolean;
+  status: ValidationStatus;
+  message: string;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
+  errorCode?: ValidationErrorCode;
+  warnings: string[];
+  language: string;
+  validator: string;
 }

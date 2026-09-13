@@ -12,6 +12,8 @@ from app.schemas.review import Review
 # below so callers below never needed to change shape when it was wired up.
 _store: dict[str, dict[str, Review]] = {}
 _idempotency: dict[str, dict[str, str]] = {}
+# user_id -> {codeHash -> version}, assignment order = first-submission order.
+_code_versions: dict[str, dict[str, int]] = {}
 _lock = asyncio.Lock()
 
 _client: firestore.AsyncClient | None = None
@@ -89,6 +91,52 @@ async def update_review(user_id: str, review_id: str, **fields) -> Review | None
     await ref.update(updates)
     updated_snapshot = await ref.get()
     return Review(**updated_snapshot.to_dict())
+
+
+async def find_latest_completed_by_hash(user_id: str, code_hash: str) -> Review | None:
+    """Most recent COMPLETED review this user has for this exact code, or
+    None. Used by review_service.create_review to skip re-running Gemini/
+    Vector Search on a byte-identical resubmission. Filters/sorts in Python
+    rather than via a compound Firestore query (codeHash == X AND status ==
+    COMPLETED, ordered by createdAt) so this doesn't require creating a
+    composite index -- a single-field equality filter is auto-indexed, and a
+    given user resubmitting the exact same code is realistically a handful of
+    rows, not enough to matter fetching client-side."""
+    if settings.local_mode:
+        async with _lock:
+            candidates = [r for r in _store.get(user_id, {}).values() if r.codeHash == code_hash and r.status == "COMPLETED"]
+        return max(candidates, key=lambda r: r.createdAt, default=None)
+
+    query = _get_client().collection("users").document(user_id).collection("reviews").where("codeHash", "==", code_hash)
+    docs = [doc.to_dict() async for doc in query.stream()]
+    completed = [Review(**d) for d in docs if d.get("status") == "COMPLETED"]
+    return max(completed, key=lambda r: r.createdAt, default=None)
+
+
+async def assign_code_version(user_id: str, code_hash: str) -> int:
+    """1-based index of `code_hash` among the distinct code identities this
+    user has ever submitted, in first-submission order. A hash seen before
+    (resubmission, forced or not) keeps the version it was first assigned
+    rather than incrementing."""
+    if settings.local_mode:
+        async with _lock:
+            versions = _code_versions.setdefault(user_id, {})
+            if code_hash not in versions:
+                versions[code_hash] = len(versions) + 1
+            return versions[code_hash]
+
+    query = _get_client().collection("users").document(user_id).collection("reviews")
+    docs = [doc.to_dict() async for doc in query.stream()]
+    first_seen: dict[str, datetime] = {}
+    for d in docs:
+        h = d.get("codeHash")
+        created = d.get("createdAt")
+        if h and (h not in first_seen or created < first_seen[h]):
+            first_seen[h] = created
+    if code_hash not in first_seen:
+        return len(first_seen) + 1
+    ordered_hashes = [h for h, _ in sorted(first_seen.items(), key=lambda kv: kv[1])]
+    return ordered_hashes.index(code_hash) + 1
 
 
 async def get_idempotent_review_id(user_id: str, key: str) -> str | None:

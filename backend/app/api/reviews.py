@@ -15,7 +15,9 @@ async def create_review(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     try:
-        review = await review_service.create_review(user_id, body.code, body.language, idempotency_key)
+        review = await review_service.create_review(
+            user_id, body.code, body.language, idempotency_key, based_on_review_id=body.basedOnReviewId
+        )
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return CreateReviewResponse(reviewId=review.id, status=review.status)

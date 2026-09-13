@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.code_validation import router as code_validation_router
 from app.api.reviews import router as reviews_router
 from app.config import settings
 from app.services import historical_data
@@ -58,6 +59,7 @@ app.add_middleware(
 )
 
 app.include_router(reviews_router)
+app.include_router(code_validation_router)
 
 
 @app.get("/health")

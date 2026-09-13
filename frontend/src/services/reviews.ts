@@ -1,11 +1,11 @@
 import { apiFetch } from './api';
 import type { Review } from '../types';
 
-export function createReview(code: string, language: string, idempotencyKey: string) {
+export function createReview(code: string, language: string, idempotencyKey: string, basedOnReviewId?: string) {
   return apiFetch<{ reviewId: string; status: string }>('/api/reviews', {
     method: 'POST',
     headers: { 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify({ code, language }),
+    body: JSON.stringify({ code, language, basedOnReviewId }),
   });
 }
 
