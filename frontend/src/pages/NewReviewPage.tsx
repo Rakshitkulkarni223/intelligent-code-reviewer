@@ -149,7 +149,7 @@ export default function NewReviewPage() {
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="editor-toolbar-actions">
             <input
               ref={fileInputRef}
               type="file"
@@ -195,12 +195,12 @@ export default function NewReviewPage() {
         <ValidationStatus phase={validation.phase} result={validation.result} errorMessage={validation.errorMessage} />
 
         <div className="editor-footer">
-          <span style={{ color: tooLarge || tooManyLines ? 'var(--danger)' : undefined }}>
+          <span className="editor-footer-meta" style={{ color: tooLarge || tooManyLines ? 'var(--danger)' : undefined }}>
             {lines} lines &middot; {sizeKb.toFixed(1)} KB
             {tooLarge && ' — exceeds 500 KB limit'}
             {tooManyLines && ' — exceeds 50,000 line limit'}
           </span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="editor-footer-actions">
             <button
               className="btn"
               onClick={() => validation.validate(code, language)}

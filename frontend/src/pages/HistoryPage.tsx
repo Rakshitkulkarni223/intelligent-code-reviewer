@@ -198,6 +198,7 @@ export default function HistoryPage() {
                   )
                 )}
               </div>
+              <span className="pagination-status">Page {currentPage} of {totalPages}</span>
               <button className="btn" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>
                 Next
               </button>

@@ -401,6 +401,7 @@ button {
 }
 
 .editor-toolbar-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.editor-toolbar-actions { display: flex; gap: 8px; }
 
 .editor-tabs { display: flex; gap: 4px; }
 .editor-tab {
@@ -420,7 +421,14 @@ button {
   border-top: 1px solid var(--border);
   font-size: 13px;
   color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 10px;
 }
+
+.editor-footer-meta { white-space: nowrap; }
+
+.editor-footer-actions { display: flex; gap: 8px; align-items: center; }
+.editor-footer-actions .btn { white-space: nowrap; }
 
 .select {
   background-color: var(--surface-raised);
@@ -549,6 +557,7 @@ button {
 .pagination-page:hover { background: var(--surface-hover); border-color: var(--border-strong); color: var(--text); }
 .pagination-page.active { background: var(--accent-muted); border-color: var(--accent); color: var(--accent); }
 .pagination-ellipsis { color: var(--text-faint); padding: 0 2px; font-size: 13px; }
+.pagination-status { display: none; font-size: 13px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---- code input (New Review) ---- */
 
@@ -1000,6 +1009,25 @@ button {
   .review-card-actions { width: 100%; justify-content: flex-end; }
   .result-layout { grid-template-columns: 1fr; }
   .result-sidebar { position: static; }
+
+  /* Line-count/size text and the Validate/Review buttons no longer share a
+     row -- at phone widths there isn't room for both, which was forcing the
+     button labels themselves to wrap onto two lines. */
+  .editor-footer-meta { width: 100%; }
+  .editor-footer-actions { width: 100%; justify-content: flex-end; }
+
+  /* On its own row under Language (there's no room for both on one line),
+     Upload file/Clear stayed pinned to the left with a lot of dead space
+     next to them -- right-aligning matches how the Validate/Review actions
+     sit in the footer, instead of reading as two disconnected stacked rows. */
+  .editor-toolbar-actions { width: 100%; justify-content: flex-end; }
+
+  /* Numbered page pills take more width than a phone screen has once
+     Previous/Next are also on the row, which pushed Next onto its own
+     line. A plain "Page X of Y" reads just as well and always fits. */
+  .pagination { flex-wrap: nowrap; justify-content: space-between; gap: 8px; }
+  .pagination-pages { display: none; }
+  .pagination-status { display: inline-flex; }
 
   .bottom-tab-bar {
     display: flex;
