@@ -10,7 +10,7 @@ import { useToast } from '../hooks/useToast';
 
 const MAX_BYTES = 500 * 1024; // 500 KB, per spec input limits
 const MAX_LINES = 50_000;
-const ACCEPTED_EXTENSIONS = '.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.go,.rs,.rb,.php';
+const ACCEPTED_EXTENSIONS = '.py,.js,.ts,.jsx,.tsx,.java,.c,.cpp,.go,.rs,.rb,.php,.sql';
 const AMBIGUITY_GAP = 0.15;
 
 export default function NewReviewPage() {
@@ -125,23 +125,16 @@ export default function NewReviewPage() {
         )}
 
         <div
-          style={{ padding: code ? 0 : '20px' }}
+          className={`code-input-shell${dragging ? ' dragging' : ''}`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
         >
-          {code ? (
-            <CodeEditor value={code} language={language} onChange={setCode} />
-          ) : (
-            <div className={`upload-dropzone${dragging ? ' dragging' : ''}`}>
+          <CodeEditor value={code} language={language} onChange={setCode} ariaLabel="Paste or write code" />
+          {!code && (
+            <div className="code-placeholder-overlay" aria-hidden="true">
+              <span className="code-placeholder-icon">⌨</span>
               Start typing, paste your code, or drag a file here.
-              <br />
-              <textarea
-                aria-label="Paste or write code"
-                style={{ width: '100%', minHeight: 120, marginTop: 16, background: 'transparent', color: 'var(--text)', border: '1px solid var(--border-strong)', borderRadius: 6, padding: 10 }}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="def hello():&#10;    pass"
-              />
             </div>
           )}
         </div>

@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass, field
 
 SUPPORTED_LANGUAGES = [
-    "python", "javascript", "typescript", "java", "c", "cpp", "go", "rust", "ruby", "php",
+    "python", "javascript", "typescript", "java", "c", "cpp", "go", "rust", "ruby", "php", "sql",
 ]
 
 # Server-side authoritative detection. Mirrors frontend/src/lib/languageDetect.ts
@@ -18,12 +18,14 @@ _SIGNATURES: list[tuple[str, list[re.Pattern]]] = [
     ("cpp", [re.compile(p) for p in [r"#include\s*<\w+>", r"\bstd::", r"\bcout\s*<<"]]),
     ("c", [re.compile(p) for p in [r"#include\s*<\w+\.h>", r"\bprintf\("]]),
     ("php", [re.compile(p) for p in [r"^<\?php", r"\becho\s+"]]),
+    ("sql", [re.compile(p, re.I | re.M) for p in [r"^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)\b", r"\bFROM\s+\w+", r"\bWHERE\b", r"\bJOIN\b"]]),
 ]
 
 _EXTENSION_MAP = {
     "py": "python", "js": "javascript", "jsx": "javascript", "ts": "typescript",
     "tsx": "typescript", "java": "java", "c": "c", "h": "c", "cpp": "cpp",
     "cc": "cpp", "hpp": "cpp", "go": "go", "rs": "rust", "rb": "ruby", "php": "php",
+    "sql": "sql",
 }
 
 

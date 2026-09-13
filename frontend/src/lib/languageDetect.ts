@@ -16,6 +16,7 @@ const EXTENSION_MAP: Record<string, string> = {
   rs: 'rust',
   rb: 'ruby',
   php: 'php',
+  sql: 'sql',
 };
 
 // Lightweight client-side heuristic. The backend re-validates authoritatively.
@@ -30,6 +31,7 @@ const SIGNATURES: { language: string; patterns: RegExp[] }[] = [
   { language: 'cpp', patterns: [/#include\s*<\w+>/, /\bstd::/, /\bcout\s*<</] },
   { language: 'c', patterns: [/#include\s*<\w+\.h>/, /\bprintf\(/] },
   { language: 'php', patterns: [/^<\?php/, /\becho\s+/] },
+  { language: 'sql', patterns: [/^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)\b/im, /\bFROM\s+\w+/i, /\bWHERE\b/i, /\bJOIN\b/i] },
 ];
 
 function scoreByContent(code: string) {
@@ -70,5 +72,5 @@ export function detectLanguage(code: string, filename?: string): LanguageDetecti
 }
 
 export const SUPPORTED_LANGUAGES = [
-  'python', 'javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'ruby', 'php',
+  'python', 'javascript', 'typescript', 'java', 'c', 'cpp', 'go', 'rust', 'ruby', 'php', 'sql',
 ];
