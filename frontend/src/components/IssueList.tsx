@@ -4,7 +4,14 @@ import EmptyState from './EmptyState';
 
 const SEVERITY_ORDER: Record<Issue['severity'], number> = { high: 0, medium: 1, low: 2 };
 
-export default function IssueList({ issues }: { issues: Issue[] }) {
+interface Props {
+  issues: Issue[];
+  code?: string;
+  language: string;
+  reviewId: string;
+}
+
+export default function IssueList({ issues, code, language, reviewId }: Props) {
   if (issues.length === 0) {
     return (
       <div className="card">
@@ -16,7 +23,7 @@ export default function IssueList({ issues }: { issues: Issue[] }) {
   return (
     <div>
       {sorted.map((issue, i) => (
-        <IssueCard key={i} issue={issue} />
+        <IssueCard key={i} issue={issue} code={code} language={language} reviewId={reviewId} />
       ))}
     </div>
   );

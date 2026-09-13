@@ -1,15 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
-import { listReviews } from '../services/reviews';
+import { Link, useNavigate } from 'react-router-dom';
+import { listReviews, retryReview } from '../services/reviews';
 import type { Review } from '../types';
 import CategoryPieChart from '../components/CategoryPieChart';
 import DistributionBar from '../components/DistributionBar';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
-import LanguageBadge from '../components/LanguageBadge';
+import ReviewCard from '../components/ReviewCard';
 import ReviewTimeline from '../components/ReviewTimeline';
-import StatusBadge from '../components/StatusBadge';
-import { reviewLinkTo } from '../lib/reviewStatus';
+import { useToast } from '../hooks/useToast';
 
 function countBy<T>(items: T[], key: (item: T) => string): [string, number][] {
   const counts: Record<string, number> = {};
@@ -29,6 +28,8 @@ function BreakdownCard({ title, children }: { title: string; children: ReactNode
 export default function DashboardPage() {
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { show } = useToast();
 
   const load = () => {
     setError(null);
@@ -37,6 +38,16 @@ export default function DashboardPage() {
   };
 
   useEffect(load, []);
+
+  const handleRetry = async (reviewId: string) => {
+    try {
+      await retryReview(reviewId);
+      show('Review resubmitted', 'success');
+      navigate(`/reviews/${reviewId}/progress`);
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Retry failed', 'error');
+    }
+  };
 
   if (error) return <ErrorState message={error} onRetry={load} />;
 
@@ -152,14 +163,7 @@ export default function DashboardPage() {
 
       <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent reviews</h2>
       {reviews.slice(0, 5).map((r) => (
-        <Link key={r.id} to={reviewLinkTo(r)} className="recent-review-row">
-          <LanguageBadge language={r.language} />
-          <StatusBadge status={r.status} />
-          <span className="recent-review-meta">
-            <span className="recent-review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
-            <span className="recent-review-date">{new Date(r.createdAt).toLocaleDateString()}</span>
-          </span>
-        </Link>
+        <ReviewCard key={r.id} review={r} onRetry={handleRetry} />
       ))}
     </div>
   );

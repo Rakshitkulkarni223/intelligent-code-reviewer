@@ -95,27 +95,25 @@ export default function ReviewResultPage() {
       )}
 
       {review.isResubmission && !bannerDismissed && (
-        <div
-          className="validation-banner validation-pending"
-          style={{ margin: '0 0 20px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}
-          role="status"
-        >
-          <span>
-            This code was already reviewed —{' '}
-            {review.previousReviewId ? (
-              <Link to={`/reviews/${review.previousReviewId}`}>showing that earlier result</Link>
-            ) : (
-              'showing the earlier result'
-            )}{' '}
-            instead of running Gemini again on unchanged code. Its score isn't counted again in your dashboard averages.
-          </span>
-          <button
-            onClick={handleDismissBanner}
-            aria-label="Dismiss"
-            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 2, flexShrink: 0 }}
-          >
-            ✕
-          </button>
+        <div className="info-banner" role="status">
+          <div className="info-banner-main">
+            <svg className="info-banner-icon" width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <line x1="12" y1="11" x2="12" y2="16.5" />
+              <circle cx="12" cy="7.5" r="0.25" fill="currentColor" />
+            </svg>
+            <p className="info-banner-text">
+              This exact code was already reviewed
+              {review.previousReviewId && <> as <code>{review.previousReviewId.slice(0, 8)}</code></>}. Gemini wasn't run
+              again, and this result isn't counted twice in your dashboard averages.
+            </p>
+          </div>
+          <div className="info-banner-actions">
+            {review.previousReviewId && (
+              <Link className="btn" to={`/reviews/${review.previousReviewId}`}>View Review →</Link>
+            )}
+            <button className="info-banner-dismiss" onClick={handleDismissBanner} aria-label="Dismiss">✕</button>
+          </div>
         </div>
       )}
 
@@ -195,7 +193,9 @@ export default function ReviewResultPage() {
             </div>
           )}
 
-          {activeTab === 'issues' && <IssueList issues={result.issues} />}
+          {activeTab === 'issues' && (
+            <IssueList issues={result.issues} code={review.code} language={review.language} reviewId={review.id} />
+          )}
 
           {activeTab === 'code' && review.code && (
             <div className="editor-panel">

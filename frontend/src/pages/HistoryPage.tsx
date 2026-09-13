@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { listReviews } from '../services/reviews';
+import { useNavigate } from 'react-router-dom';
+import { listReviews, retryReview } from '../services/reviews';
 import type { Review, ReviewStatus } from '../types';
 import { SUPPORTED_LANGUAGES, languageLabel } from '../lib/languageDetect';
-import { reviewLinkTo } from '../lib/reviewStatus';
 import DateRangeFilter from '../components/DateRangeFilter';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
-import LanguageBadge from '../components/LanguageBadge';
+import ReviewCard from '../components/ReviewCard';
 import SelectMenu from '../components/SelectMenu';
-import StatusBadge from '../components/StatusBadge';
+import { useToast } from '../hooks/useToast';
 
 type SortKey = 'date' | 'score';
 type StatusFilter = ReviewStatus | 'all';
@@ -62,6 +61,8 @@ export default function HistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [sort, setSort] = useState<SortKey>('date');
   const [page, setPage] = useState(1);
+  const navigate = useNavigate();
+  const { show } = useToast();
 
   useEffect(() => {
     listReviews().then(setReviews).catch((e) => setError(e.message));
@@ -112,6 +113,16 @@ export default function HistoryPage() {
     setDateTo('');
   };
 
+  const handleRetry = async (reviewId: string) => {
+    try {
+      await retryReview(reviewId);
+      show('Review resubmitted', 'success');
+      navigate(`/reviews/${reviewId}/progress`);
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Retry failed', 'error');
+    }
+  };
+
   if (error) return <ErrorState message={error} />;
 
   return (
@@ -153,7 +164,7 @@ export default function HistoryPage() {
       </div>
 
       {reviews === null ? (
-        <div>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 56, marginBottom: 8 }} />)}</div>
+        <div>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 108, marginBottom: 12 }} />)}</div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon="🔍"
@@ -163,15 +174,7 @@ export default function HistoryPage() {
       ) : (
         <>
           {paged.map((r) => (
-            <Link key={r.id} to={reviewLinkTo(r)} className="review-row" style={{ gridTemplateColumns: '100px 110px 1fr 80px 100px' }}>
-              <LanguageBadge language={r.language} />
-              <StatusBadge status={r.status} />
-              <span style={{ color: 'var(--text-muted)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                {r.result?.summary ?? '—'}
-              </span>
-              <span className="review-score">{r.score != null ? r.score.toFixed(1) : '—'}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>{new Date(r.createdAt).toLocaleDateString()}</span>
-            </Link>
+            <ReviewCard key={r.id} review={r} onRetry={handleRetry} />
           ))}
 
           {totalPages > 1 && (

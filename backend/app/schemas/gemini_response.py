@@ -12,6 +12,14 @@ class Issue(BaseModel):
     line: int | None = None
     description: str
     suggestion: str
+    # A concrete replacement snippet for lines `line`..`endLine` (inclusive),
+    # only when the fix is a mechanical code change Gemini can state directly
+    # -- e.g. "use parameterized queries" gets one, "reconsider this
+    # architecture" doesn't. Never populated without `line`: the frontend
+    # can't safely splice a fix it can't locate. `endLine` defaults to `line`
+    # itself (single-line fix) when omitted.
+    suggestedFix: str | None = None
+    endLine: int | None = None
 
 
 class ScoreDimensions(BaseModel):

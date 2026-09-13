@@ -16,6 +16,11 @@ export interface Issue {
   line?: number;
   description: string;
   suggestion: string;
+  // Replacement code for lines `line`..`endLine` (inclusive) -- only present
+  // when the backend could locate a concrete, mechanical fix. Never present
+  // without `line`. See lib/applyFix.ts for how this gets spliced in.
+  suggestedFix?: string;
+  endLine?: number;
 }
 
 export interface HistoricalMatch {

@@ -22,8 +22,17 @@ const ICONS = {
   signOut: (
     <svg {...ICON_PROPS}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
   ),
+  // "menu-fold" -- mirrored to "menu-unfold" via CSS when collapsed (see
+  // .sidebar.collapsed .sidebar-toggle svg) so the arrow always points the
+  // direction the click will actually move the sidebar.
   collapse: (
-    <svg {...ICON_PROPS} width={15} height={15}><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" /></svg>
+    <svg {...ICON_PROPS} width={22} height={22} strokeWidth={1.8}>
+      <line x1="4" y1="5" x2="20" y2="5" />
+      <line x1="11" y1="9.5" x2="20" y2="9.5" />
+      <line x1="11" y1="14.5" x2="20" y2="14.5" />
+      <line x1="4" y1="19" x2="20" y2="19" />
+      <polygon points="9,8 9,16 4,12" fill="currentColor" stroke="none" />
+    </svg>
   ),
 };
 
@@ -61,17 +70,17 @@ export default function Layout() {
   return (
     <div className="app-shell">
       <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
-        <button
-          className="sidebar-toggle"
-          onClick={toggleCollapsed}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {ICONS.collapse}
-        </button>
         <div className="sidebar-brand">
           <span className="dot" aria-hidden="true" />
           <span className="brand-text">Code Reviewer</span>
+          <button
+            className="sidebar-toggle"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {ICONS.collapse}
+          </button>
         </div>
         <div className="nav-section-label">Menu</div>
         <nav aria-label="Primary" className="nav-links">
@@ -103,6 +112,19 @@ export default function Layout() {
       <main className="main-content">
         <Outlet />
       </main>
+      <nav className="bottom-tab-bar" aria-label="Primary">
+        {LINKS.map((link) => (
+          <NavLink
+            key={link.to}
+            to={link.to}
+            end={link.end}
+            className={({ isActive }) => `bottom-tab-item${isActive ? ' active' : ''}`}
+          >
+            {link.icon}
+            <span>{link.label}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

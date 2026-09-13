@@ -89,36 +89,36 @@ button {
   transition: width 0.18s ease;
 }
 
-/* Floats on the sidebar's border, half in/half out -- a common pattern
-   (VSCode, Notion, Linear) that keeps it out of the way of the brand and
-   nav content entirely, rather than competing for space in either row. */
+/* Sits inline at the end of the brand row, not floating on the sidebar's
+   border -- pushed there with its own margin so it stays put regardless of
+   how much space "Code Reviewer" takes up. Same plain icon-button look as
+   .account-signout below, not a bordered/shadowed circle. */
 .sidebar-toggle {
-  position: absolute;
-  top: 13.5px;
-  right: -12px;
-  width: 24px;
-  height: 24px;
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--text-muted);
-  box-shadow: var(--shadow-sm);
-  z-index: 5;
 }
-.sidebar-toggle:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
-.sidebar-toggle svg { transition: transform 0.18s ease; }
+.sidebar-toggle:hover { background: var(--surface-hover); color: var(--text); }
 
 .sidebar.collapsed { width: 76px; }
 .sidebar.collapsed .brand-text,
 .sidebar.collapsed .nav-section-label,
 .sidebar.collapsed .nav-label,
 .sidebar.collapsed .account-email { display: none; }
+/* An auto margin still claims all free space regardless of justify-content,
+   so it has to be cleared here for the dot+toggle pair to actually center
+   together once the brand text between them is gone. */
 .sidebar.collapsed .sidebar-brand { justify-content: center; }
-.sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+.sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+.sidebar.collapsed .sidebar-toggle svg { transform: scaleX(-1); }
 .sidebar.collapsed .nav-link { justify-content: center; padding: 10px; gap: 0; }
 .sidebar.collapsed .sidebar-footer { flex-direction: column; gap: 10px; padding-bottom: 2px; }
 
@@ -360,18 +360,18 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 11px;
+  padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.4;
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
   color: var(--text-muted);
   text-transform: capitalize;
-  /* As a direct child of a grid row (e.g. .review-row), a grid item
-     stretches to fill its column by default -- without this, the pill's
-     border stretches the full column width instead of hugging its text. */
+  /* As a direct child of a CSS Grid row, a grid item stretches to fill its
+     column by default -- without this, the pill's border stretches the full
+     column width instead of hugging its text. */
   width: fit-content;
 }
 
@@ -601,6 +601,49 @@ button {
 .validation-fail { background: var(--danger-bg); border: 1px solid var(--danger); color: var(--text); }
 .validation-location { color: var(--text-muted); font-family: var(--font-mono); }
 
+/* ---- info banner (e.g. "this code was already reviewed") ---- */
+
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin: 0 0 20px;
+  background: var(--accent-muted);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+/* Icon and text are one unit so they wrap onto their own row as a pair on
+   mobile, instead of every child of .info-banner wrapping independently
+   (which left the dismiss button stranded at an odd spot -- part of a text
+   line's wrap, not grouped with the button next to it). */
+.info-banner-main { display: flex; align-items: flex-start; gap: 12px; flex: 1; min-width: 220px; }
+.info-banner-icon { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.info-banner-text { flex: 1; min-width: 0; margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.info-banner-text code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-raised);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.info-banner-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.info-banner-dismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.info-banner-dismiss:hover { color: var(--text); }
+@media (max-width: 640px) {
+  .info-banner { flex-direction: column; align-items: stretch; }
+  .info-banner-actions { width: 100%; justify-content: space-between; }
+}
+
 /* ---- page-level tabs (e.g. review result sections) ---- */
 
 .tab-bar {
@@ -727,6 +770,32 @@ button {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+/* ---- suggested fix (collapsed by default -- a review can have many
+   issues, and showing every fix's code block expanded at once would turn
+   the tab into a wall of code) ---- */
+.issue-fix { margin-top: 12px; }
+.issue-fix-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.issue-fix-toggle:hover { color: var(--accent-hover); }
+.issue-fix-body { margin-top: 10px; }
+.issue-fix-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+.apply-fix-modal { width: 640px; max-width: calc(100vw - 32px); }
+/* Stacked, not side-by-side -- code lines are horizontal, and a modal-width
+   column split in half wraps almost every real line, which is harder to
+   read than two full-width blocks one above the other. */
+.apply-fix-diff { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.apply-fix-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.apply-fix-label-before { color: var(--text-faint); }
+.apply-fix-label-after { color: var(--success); }
+
 /* ---- historical insight ---- */
 
 .historical-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
@@ -750,46 +819,46 @@ button {
 }
 .search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-muted); }
 
-.review-row {
-  display: grid;
-  grid-template-columns: 100px 1fr 80px 100px;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 18px;
+/* History's review card -- one column, full-width, stacked vertically at
+   every screen size (a 2-per-row grid was considered and rejected: the AI
+   summary needs the full card width to read as more than one truncated
+   line, and a failed card's content genuinely differs from a completed
+   one's, which cards absorb far more gracefully than a fixed-column row). */
+.review-card {
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-  background: var(--surface);
-  text-decoration: none;
-  color: var(--text);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
-}
-.review-row:hover { border-color: var(--border-strong); background: var(--surface-hover); transform: translateX(2px); }
-.review-score { font-weight: 700; font-variant-numeric: tabular-nums; }
-
-/* Dashboard's "Recent reviews" -- unlike .review-row (a table-like grid built
-   for a summary column that fills the middle), this has only badge + status
-   on the left and score + date on the right, so a flex layout with one
-   flexible gap in between reads cleaner than a mostly-empty grid column. */
-.recent-review-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
+  border-radius: var(--radius);
+  margin-bottom: 10px;
   background: linear-gradient(180deg, var(--surface-raised), var(--surface));
-  text-decoration: none;
-  color: var(--text);
   box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  transition: border-color 0.15s ease;
 }
-.recent-review-row:hover { border-color: var(--border-strong); background: var(--surface-hover); transform: translateX(2px); }
-.recent-review-meta { margin-left: auto; display: flex; align-items: center; gap: 22px; }
-.recent-review-score { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; }
-.recent-review-date { color: var(--text-muted); font-size: 13px; width: 84px; text-align: right; }
+.review-card:hover { border-color: var(--border-strong); }
+
+.review-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+
+.review-card-summary {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.review-card-metrics { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-muted); }
+.review-card-metric strong { color: var(--text); font-size: 14px; font-weight: 700; }
+.review-card-metric.positive { color: var(--success); }
+.review-card-metric.negative { color: var(--danger); }
+.review-card-date { color: var(--text-faint); font-size: 12px; }
+.review-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+/* The base .btn is sized for page-level actions (New Review, Sign out) --
+   too big for a repeated in-card link sitting next to small metric text. */
+.review-card-actions .btn { padding: 5px 11px; font-size: 12.5px; }
+
 
 /* ---- empty / error states ---- */
 
@@ -884,26 +953,36 @@ button {
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 .mobile-signout { display: none; }
+.bottom-tab-bar { display: none; }
 
 @media (max-width: 720px) {
   .app-shell { flex-direction: column; }
-  .sidebar, .sidebar.collapsed { width: 100%; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--border); padding: 10px 12px; gap: 4px; }
-  .sidebar-brand { padding: 0 10px 0 0; white-space: nowrap; flex-shrink: 0; border-bottom: none; margin-bottom: 0; }
+  /* On mobile the sidebar is just a slim top bar: brand on the left,
+     sign-out on the right. Primary navigation moves to .bottom-tab-bar
+     below -- a fixed bottom tab bar (icon + label) is the standard mobile
+     pattern, and reads far better than the same nav squeezed into a row of
+     bare icons up top. */
+  .sidebar, .sidebar.collapsed {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+  .sidebar-brand { padding: 0; white-space: nowrap; flex-shrink: 0; border-bottom: none; margin-bottom: 0; }
   .nav-section-label { display: none; }
-  .nav-links { display: flex; gap: 2px; flex: 1; min-width: 0; }
-  .nav-link { white-space: nowrap; flex-shrink: 0; }
+  .nav-links { display: none; }
   .sidebar-footer { display: none; }
-  /* Collapse is a desktop-only affordance -- the mobile bar is already
-     compact, so the toggle button has nothing useful to do here. */
   .sidebar-toggle { display: none; }
   .mobile-signout {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     flex-shrink: 0;
-    margin-left: 4px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
@@ -911,19 +990,47 @@ button {
     cursor: pointer;
   }
   .mobile-signout:hover { background: var(--surface-hover); color: var(--text); }
-  .main-content { padding: 20px; }
-  .review-row { grid-template-columns: 1fr; gap: 4px; }
-  .recent-review-row { flex-wrap: wrap; }
-  .recent-review-meta { margin-left: 0; width: 100%; justify-content: space-between; }
+  /* Bottom padding clears the fixed tab bar so the last bit of page
+     content is never hidden underneath it. */
+  .main-content { padding: 20px 20px 84px; }
+  /* Forces actions onto their own full-width row when they don't fit next
+     to the metrics, but the buttons themselves stay sized to their text --
+     stretching a single "View Review" button edge-to-edge down a whole
+     list of cards looked heavy and unintentional. */
+  .review-card-actions { width: 100%; justify-content: flex-end; }
   .result-layout { grid-template-columns: 1fr; }
   .result-sidebar { position: static; }
+
+  .bottom-tab-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .bottom-tab-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 2px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 10.5px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+  }
+  .bottom-tab-item svg { flex-shrink: 0; }
+  .bottom-tab-item.active { color: var(--accent); }
 }
 
-/* Below 720px there's room for icon + label; below this, only icons fit
-   without either clipping a nav item or forcing horizontal scroll. */
+/* Below 720px there's room for the brand text next to the sign-out icon;
+   below this, only the logo dot fits without crowding sign-out. */
 @media (max-width: 480px) {
   .brand-text { display: none; }
-  .nav-label { display: none; }
-  .nav-links { justify-content: space-between; }
-  .nav-link { padding: 8px; margin-bottom: 0; }
 }

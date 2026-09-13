@@ -7,20 +7,9 @@ import CodeEditor from '../components/CodeEditor';
 import LanguageBadge from '../components/LanguageBadge';
 import ErrorState from '../components/ErrorState';
 import { useToast } from '../hooks/useToast';
+import { failureMessage } from '../lib/reviewStatus';
 
 const POLL_MS = 1500;
-
-// Mirrors backend/app/schemas/review.py FailureReason -- keep in sync.
-const FAILURE_MESSAGES: Record<string, string> = {
-  SYNTAX_ERROR: 'Your code has a syntax error and could not be analyzed.',
-  VALIDATION_ERROR: 'Your code failed validation before it could be reviewed.',
-  COMPILE_ERROR: 'Your code could not be compiled.',
-  RUNTIME_ERROR: 'Your code raised an error while running.',
-  REVIEW_SERVICE_ERROR: 'The review service ran into a problem processing your code.',
-  GEMINI_ERROR: 'The AI reviewer could not complete this review.',
-  TIMEOUT: 'The review took too long and timed out.',
-  INTERNAL_ERROR: 'Something went wrong on our end.',
-};
 
 export default function ReviewProgressPage() {
   const { reviewId } = useParams<{ reviewId: string }>();
@@ -114,7 +103,7 @@ export default function ReviewProgressPage() {
             {review.status === 'FAILED' && (
               <div style={{ textAlign: 'center', marginTop: 24 }}>
                 <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                  {(review.failureReason && FAILURE_MESSAGES[review.failureReason]) ?? review.error ?? 'The review could not be completed.'}
+                  {failureMessage(review.failureReason, review.error)}
                 </p>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
                   <button className="btn" onClick={handleEditCode}>Edit Code</button>
