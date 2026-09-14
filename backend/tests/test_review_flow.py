@@ -256,6 +256,35 @@ def test_hardcoded_secret_is_flagged_but_never_logged_verbatim(client, caplog):
     assert not any("sk_live_abcdef1234567890" in record.getMessage() for record in caplog.records)
 
 
+def test_deleted_review_is_gone_from_get_and_list(client):
+    headers = {"Authorization": "Bearer user_a"}
+    create = client.post("/api/reviews", json={"code": CLEAN_CODE, "language": "python"}, headers=headers)
+    review_id = create.json()["reviewId"]
+    _wait_for_completion(client, review_id, headers)
+
+    delete = client.delete(f"/api/reviews/{review_id}", headers=headers)
+    assert delete.status_code == 204
+
+    assert client.get(f"/api/reviews/{review_id}", headers=headers).status_code == 404
+    assert all(r["id"] != review_id for r in client.get("/api/reviews", headers=headers).json())
+
+
+def test_deleting_missing_review_returns_404(client):
+    headers = {"Authorization": "Bearer user_a"}
+    assert client.delete("/api/reviews/does-not-exist", headers=headers).status_code == 404
+
+
+def test_cannot_delete_another_users_review(client):
+    headers_a = {"Authorization": "Bearer user_a"}
+    headers_b = {"Authorization": "Bearer user_b"}
+    create = client.post("/api/reviews", json={"code": CLEAN_CODE, "language": "python"}, headers=headers_a)
+    review_id = create.json()["reviewId"]
+
+    assert client.delete(f"/api/reviews/{review_id}", headers=headers_b).status_code == 404
+    # Still there for its actual owner -- the cross-user delete must not have gone through.
+    assert client.get(f"/api/reviews/{review_id}", headers=headers_a).status_code == 200
+
+
 def test_gemini_service_scores_lower_for_high_severity_issue():
     clean, _ = asyncio.run(gemini_service.analyze_code(CLEAN_CODE, "python"))
     risky, categories = asyncio.run(gemini_service.analyze_code(SQL_INJECTION_CODE, "python"))

@@ -1,8 +1,10 @@
+import json
 import logging
 import re
 
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
 from app.config import settings
 from app.schemas.gemini_response import GeminiAnalysis, GeminiModelOutput, HistoricalMatch, Issue, ScoreDimensions
@@ -258,3 +260,59 @@ async def analyze_code(
     if settings.local_mode:
         return _analyze_code_mock(code, language)
     return await _analyze_with_gemini(code, language, historical_rules or [])
+
+
+# ponytail: the project-summary pass (docs/PROJECT_ZIP_REVIEW_PLAN.md §4.7)
+# is fed only per-file metadata (path, tier, score, top issue titles), never
+# full source -- cheap, and answers cross-file questions no single file's
+# review can (a repeated pattern, an inconsistency between similar files).
+_PROJECT_SUMMARY_INSTRUCTIONS = """You write a short cross-file summary of a code review that has
+already scored every file individually. You are given the project's detected profile and, for
+each reviewed file, its path, tier, score, and top issue titles -- never the source code itself,
+so you cannot reason about anything not already implied by that metadata (e.g. an actual circular
+import). Look for patterns across files: a repeated issue, an inconsistency between similar files
+(e.g. "3 of 4 API files do X, one doesn't"), or an architectural note tied to the profile. Write
+2-4 sentences for `summary` and up to 3 short items for `recommendations`. Never fabricate a
+specific issue that isn't implied by the given file summaries."""
+
+
+class _ProjectSummaryOutput(BaseModel):
+    summary: str
+    recommendations: list[str] = []
+
+
+def _summarize_project_mock(file_summaries: list[dict]) -> tuple[str, list[str]]:
+    scored = [f for f in file_summaries if f.get("score") is not None]
+    if not scored:
+        return "No files were successfully scored.", []
+    worst = min(scored, key=lambda f: f["score"])
+    all_issue_titles = [t for f in scored for t in f.get("topIssues", [])]
+    summary = (
+        f"Reviewed {len(scored)} file(s); {worst['path']} scored lowest at {worst['score']}. "
+        f"{len(all_issue_titles)} total issue(s) found across all reviewed files."
+    )
+    recommendations = list(dict.fromkeys(all_issue_titles))[:3]
+    return summary, recommendations
+
+
+async def _summarize_project_with_gemini(profile: dict, file_summaries: list[dict]) -> tuple[str, list[str]]:
+    client = _get_client()
+    payload = {"profile": profile, "fileSummaries": file_summaries}
+    response = await client.aio.models.generate_content(
+        model=settings.gemini_model,
+        contents=json.dumps(payload),
+        config=types.GenerateContentConfig(
+            system_instruction=_PROJECT_SUMMARY_INSTRUCTIONS,
+            response_mime_type="application/json",
+            response_schema=_ProjectSummaryOutput,
+            temperature=0.2,
+        ),
+    )
+    output = _ProjectSummaryOutput.model_validate_json(response.text)
+    return output.summary, output.recommendations
+
+
+async def summarize_project(profile: dict, file_summaries: list[dict]) -> tuple[str, list[str]]:
+    if settings.local_mode:
+        return _summarize_project_mock(file_summaries)
+    return await _summarize_project_with_gemini(profile, file_summaries)

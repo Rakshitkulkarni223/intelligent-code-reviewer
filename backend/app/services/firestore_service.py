@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from google.cloud import firestore
 
 from app.config import settings
+from app.schemas.project_review import ProjectFile, ProjectReview
 from app.schemas.review import Review
 
 # ponytail: _store/_idempotency are an in-memory stand-in for
@@ -15,6 +16,12 @@ _idempotency: dict[str, dict[str, str]] = {}
 # user_id -> {codeHash -> version}, assignment order = first-submission order.
 _code_versions: dict[str, dict[str, int]] = {}
 _lock = asyncio.Lock()
+
+# Same stand-in pattern, for `users/{userId}/projectReviews/{projectId}` (+
+# its `files` subcollection) -- docs/PROJECT_ZIP_REVIEW_PLAN.md §4.2/§7.
+_project_store: dict[str, dict[str, ProjectReview]] = {}
+_project_files_store: dict[str, dict[str, dict[str, ProjectFile]]] = {}
+_project_lock = asyncio.Lock()
 
 _client: firestore.AsyncClient | None = None
 
@@ -93,6 +100,23 @@ async def update_review(user_id: str, review_id: str, **fields) -> Review | None
     return Review(**updated_snapshot.to_dict())
 
 
+async def delete_review(user_id: str, review_id: str) -> bool:
+    """Deletes a review, returning whether it existed. Doesn't touch
+    idempotencyKeys or other reviews' previousReviewId/basedOnReviewId
+    pointers -- a dangling reference to a deleted review is the same
+    "not found" a caller already gets for any other missing review."""
+    if settings.local_mode:
+        async with _lock:
+            return _store.get(user_id, {}).pop(review_id, None) is not None
+
+    ref = _review_ref(user_id, review_id)
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return False
+    await ref.delete()
+    return True
+
+
 async def find_latest_completed_by_hash(user_id: str, code_hash: str) -> Review | None:
     """Most recent COMPLETED review this user has for this exact code, or
     None. Used by review_service.create_review to skip re-running Gemini/
@@ -157,3 +181,137 @@ async def set_idempotency_key(user_id: str, key: str, review_id: str) -> None:
 
 def now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# --- Project reviews (docs/PROJECT_ZIP_REVIEW_PLAN.md §4.2) ---
+
+
+def _serialize_field(value):
+    """Recursively converts a pydantic model (or list of them) to a plain
+    JSON-safe value for a Firestore .update() call. Needed here specifically
+    because ProjectReview.worstFiles is a list[WorstFile] -- the existing
+    single-object pattern (`v.model_dump() if hasattr(v, "model_dump") else
+    v`) used elsewhere in this file never had to handle a *list* of models
+    before this field existed."""
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, list):
+        return [_serialize_field(item) for item in value]
+    return value
+
+
+def _project_ref(user_id: str, project_id: str):
+    return _get_client().collection("users").document(user_id).collection("projectReviews").document(project_id)
+
+
+def _project_file_ref(user_id: str, project_id: str, file_id: str):
+    return _project_ref(user_id, project_id).collection("files").document(file_id)
+
+
+async def create_project_review(project: ProjectReview) -> None:
+    if settings.local_mode:
+        async with _project_lock:
+            _project_store.setdefault(project.userId, {})[project.id] = project
+            _project_files_store.setdefault(project.userId, {}).setdefault(project.id, {})
+        return
+    data = project.model_dump(mode="json", exclude={"files"})
+    await _project_ref(project.userId, project.id).set(data)
+
+
+async def get_project_review(user_id: str, project_id: str, include_files: bool = True) -> ProjectReview | None:
+    if settings.local_mode:
+        async with _project_lock:
+            project = _project_store.get(user_id, {}).get(project_id)
+            if not project:
+                return None
+            if not include_files:
+                return project
+            files = list(_project_files_store.get(user_id, {}).get(project_id, {}).values())
+            return project.model_copy(update={"files": files})
+
+    snapshot = await _project_ref(user_id, project_id).get()
+    if not snapshot.exists:
+        return None
+    data = snapshot.to_dict()
+    files: list[ProjectFile] = []
+    if include_files:
+        files = [ProjectFile(**doc.to_dict()) async for doc in _project_ref(user_id, project_id).collection("files").stream()]
+    return ProjectReview(**data, files=files)
+
+
+async def list_project_reviews(user_id: str) -> list[ProjectReview]:
+    if settings.local_mode:
+        async with _project_lock:
+            projects = list(_project_store.get(user_id, {}).values())
+        return sorted(projects, key=lambda p: p.createdAt, reverse=True)
+
+    query = (
+        _get_client()
+        .collection("users")
+        .document(user_id)
+        .collection("projectReviews")
+        .order_by("createdAt", direction=firestore.Query.DESCENDING)
+    )
+    return [ProjectReview(**doc.to_dict()) async for doc in query.stream()]
+
+
+async def update_project_review(user_id: str, project_id: str, **fields) -> ProjectReview | None:
+    if settings.local_mode:
+        async with _project_lock:
+            existing = _project_store.get(user_id, {}).get(project_id)
+            if not existing:
+                return None
+            updated = existing.model_copy(update=fields)
+            _project_store[user_id][project_id] = updated
+            return updated
+
+    ref = _project_ref(user_id, project_id)
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return None
+    updates = {k: _serialize_field(v) for k, v in fields.items()}
+    await ref.update(updates)
+    return await get_project_review(user_id, project_id, include_files=False)
+
+
+async def create_project_file(user_id: str, project_id: str, file: ProjectFile) -> None:
+    if settings.local_mode:
+        async with _project_lock:
+            _project_files_store.setdefault(user_id, {}).setdefault(project_id, {})[file.id] = file
+        return
+    await _project_file_ref(user_id, project_id, file.id).set(file.model_dump(mode="json"))
+
+
+async def get_project_file(user_id: str, project_id: str, file_id: str) -> ProjectFile | None:
+    if settings.local_mode:
+        async with _project_lock:
+            return _project_files_store.get(user_id, {}).get(project_id, {}).get(file_id)
+    snapshot = await _project_file_ref(user_id, project_id, file_id).get()
+    return ProjectFile(**snapshot.to_dict()) if snapshot.exists else None
+
+
+async def update_project_file(user_id: str, project_id: str, file_id: str, **fields) -> ProjectFile | None:
+    if settings.local_mode:
+        async with _project_lock:
+            existing = _project_files_store.get(user_id, {}).get(project_id, {}).get(file_id)
+            if not existing:
+                return None
+            updated = existing.model_copy(update=fields)
+            _project_files_store[user_id][project_id][file_id] = updated
+            return updated
+
+    ref = _project_file_ref(user_id, project_id, file_id)
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return None
+    updates = {k: _serialize_field(v) for k, v in fields.items()}
+    await ref.update(updates)
+    updated_snapshot = await ref.get()
+    return ProjectFile(**updated_snapshot.to_dict())
+
+
+async def list_project_files(user_id: str, project_id: str) -> list[ProjectFile]:
+    if settings.local_mode:
+        async with _project_lock:
+            return list(_project_files_store.get(user_id, {}).get(project_id, {}).values())
+    return [ProjectFile(**doc.to_dict()) async for doc in _project_ref(user_id, project_id).collection("files").stream()]

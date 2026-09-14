@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { listReviews, retryReview } from '../services/reviews';
+import { deleteReview, listReviews, retryReview } from '../services/reviews';
 import type { Review } from '../types';
 import CategoryPieChart from '../components/CategoryPieChart';
+import ConfirmModal from '../components/ConfirmModal';
 import DistributionBar from '../components/DistributionBar';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
@@ -28,6 +29,7 @@ function BreakdownCard({ title, children }: { title: string; children: ReactNode
 export default function DashboardPage() {
   const [reviews, setReviews] = useState<Review[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { show } = useToast();
 
@@ -46,6 +48,21 @@ export default function DashboardPage() {
       navigate(`/reviews/${reviewId}/progress`);
     } catch (e) {
       show(e instanceof Error ? e.message : 'Retry failed', 'error');
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    try {
+      await deleteReview(id);
+      // All the stats below are recomputed from `reviews` on every render, so
+      // dropping the deleted one from state here is what makes them update.
+      setReviews((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      show('Review deleted', 'success');
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Delete failed', 'error');
     }
   };
 
@@ -163,8 +180,19 @@ export default function DashboardPage() {
 
       <h2 style={{ fontSize: 16, marginBottom: 12 }}>Recent reviews</h2>
       {reviews.slice(0, 5).map((r) => (
-        <ReviewCard key={r.id} review={r} onRetry={handleRetry} />
+        <ReviewCard key={r.id} review={r} onRetry={handleRetry} onDelete={setPendingDeleteId} />
       ))}
+
+      {pendingDeleteId && (
+        <ConfirmModal
+          title="Delete this review?"
+          body="This permanently deletes the review and its result, and updates your dashboard metrics. This can't be undone."
+          confirmLabel="Delete"
+          danger
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listReviews, retryReview } from '../services/reviews';
-import type { Review, ReviewStatus } from '../types';
+import { deleteReview, listReviews, retryReview } from '../services/reviews';
+import { listProjectReviews } from '../services/projects';
+import type { ProjectReviewSummary, Review, ReviewStatus } from '../types';
 import { SUPPORTED_LANGUAGES, languageLabel } from '../lib/languageDetect';
+import ConfirmModal from '../components/ConfirmModal';
 import DateRangeFilter from '../components/DateRangeFilter';
 import EmptyState from '../components/EmptyState';
 import ErrorState from '../components/ErrorState';
 import ReviewCard from '../components/ReviewCard';
+import ProjectReviewCard from '../components/ProjectReviewCard';
 import SelectMenu from '../components/SelectMenu';
 import { useToast } from '../hooks/useToast';
 
 type SortKey = 'date' | 'score';
 type StatusFilter = ReviewStatus | 'all';
 type LanguageFilter = string;
+type HistoryTab = 'reviews' | 'projects';
 
 const PAGE_SIZE = 8;
 
@@ -52,7 +56,9 @@ function pageNumbers(current: number, total: number): (number | '…')[] {
 }
 
 export default function HistoryPage() {
+  const [tab, setTab] = useState<HistoryTab>('reviews');
   const [reviews, setReviews] = useState<Review[] | null>(null);
+  const [projects, setProjects] = useState<ProjectReviewSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [language, setLanguage] = useState('all');
@@ -61,12 +67,21 @@ export default function HistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [sort, setSort] = useState<SortKey>('date');
   const [page, setPage] = useState(1);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { show } = useToast();
 
   useEffect(() => {
     listReviews().then(setReviews).catch((e) => setError(e.message));
+    listProjectReviews().then(setProjects).catch(() => setProjects([]));
   }, []);
+
+  const sortedProjects = useMemo(() => {
+    if (!projects) return [];
+    return [...projects].sort((a, b) =>
+      sort === 'score' ? (b.overallScore ?? 0) - (a.overallScore ?? 0) : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [projects, sort]);
 
   const filtered = useMemo(() => {
     if (!reviews) return [];
@@ -123,22 +138,60 @@ export default function HistoryPage() {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    try {
+      await deleteReview(id);
+      // Drop it from local state directly rather than refetching -- the
+      // dashboard/history metrics are always derived from this array, so
+      // removing it here is what makes them reflect the deletion immediately.
+      setReviews((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      show('Review deleted', 'success');
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Delete failed', 'error');
+    }
+  };
+
   if (error) return <ErrorState message={error} />;
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">All Reviews</h1>
-          {reviews && (
+          <h1 className="page-title">History</h1>
+          {tab === 'reviews' && reviews && (
             <p className="page-subtitle">
               {filtered.length} review{filtered.length === 1 ? '' : 's'}
               {hasActiveFilters ? ' matching your filters' : ''}
             </p>
           )}
+          {tab === 'projects' && projects && (
+            <p className="page-subtitle">{projects.length} project review{projects.length === 1 ? '' : 's'}</p>
+          )}
         </div>
       </div>
 
+      <div className="segmented" role="tablist" style={{ marginBottom: 16 }}>
+        <button role="tab" aria-selected={tab === 'reviews'} className={`segmented-option${tab === 'reviews' ? ' active' : ''}`} onClick={() => setTab('reviews')}>
+          Code Reviews
+        </button>
+        <button role="tab" aria-selected={tab === 'projects'} className={`segmented-option${tab === 'projects' ? ' active' : ''}`} onClick={() => setTab('projects')}>
+          Project Reviews
+        </button>
+      </div>
+
+      {tab === 'projects' ? (
+        projects === null ? (
+          <div>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 108, marginBottom: 12 }} />)}</div>
+        ) : sortedProjects.length === 0 ? (
+          <EmptyState icon="📁" title="No project reviews yet" description="Upload a .zip from New Review to get a project-level review." />
+        ) : (
+          sortedProjects.map((p) => <ProjectReviewCard key={p.id} project={p} />)
+        )
+      ) : (
+      <>
       <div className="filters-row">
         <input
           className="search-input"
@@ -174,7 +227,7 @@ export default function HistoryPage() {
       ) : (
         <>
           {paged.map((r) => (
-            <ReviewCard key={r.id} review={r} onRetry={handleRetry} />
+            <ReviewCard key={r.id} review={r} onRetry={handleRetry} onDelete={setPendingDeleteId} />
           ))}
 
           {totalPages > 1 && (
@@ -205,6 +258,19 @@ export default function HistoryPage() {
             </div>
           )}
         </>
+      )}
+      </>
+      )}
+
+      {pendingDeleteId && (
+        <ConfirmModal
+          title="Delete this review?"
+          body="This permanently deletes the review and its result. This can't be undone."
+          confirmLabel="Delete"
+          danger
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+        />
       )}
     </div>
   );

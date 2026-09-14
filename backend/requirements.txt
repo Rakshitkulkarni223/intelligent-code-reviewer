@@ -2,6 +2,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.13.5
 python-dotenv==1.0.1
+python-multipart==0.0.20
 google-genai==2.23.0
 google-cloud-aiplatform==1.165.1
 google-cloud-pubsub==2.40.0

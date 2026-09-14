@@ -128,3 +128,104 @@ export interface ValidationResult {
   language: string;
   validator: string;
 }
+
+// Mirrors backend/app/schemas/project_review.py -- keep in sync.
+// docs/PROJECT_ZIP_REVIEW_PLAN.md
+
+export type ProjectReviewStatus = 'QUEUED' | 'ANALYZING' | 'CANCELLING' | 'CANCELLED' | 'COMPLETED' | 'FAILED';
+export type ProjectFileStatus = 'QUEUED' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+export type ReviewMode = 'standard' | 'comprehensive';
+export type PriorityTier = 'auth' | 'api' | 'data' | 'source' | 'util' | 'config' | 'test' | 'docs';
+
+export interface ProjectProfile {
+  projectType: string;
+  languages: string[];
+  frameworks: string[];
+  entryPoints: string[];
+  estimatedComplexity: 'small' | 'medium' | 'large';
+}
+
+export interface ExcludedEntry {
+  path: string;
+  reason: string;
+}
+
+export interface ManifestFile {
+  path: string;
+  language: string;
+  tier: PriorityTier;
+  size: number;
+  lines: number;
+  defaultSelected: boolean;
+}
+
+export interface ProjectManifest {
+  uploadToken: string;
+  originalFilename: string;
+  profile: ProjectProfile;
+  files: ManifestFile[];
+  excluded: ExcludedEntry[];
+  totalLines: number;
+  totalSize: number;
+}
+
+export interface ProjectFile {
+  id: string;
+  path: string;
+  language: string;
+  tier: PriorityTier;
+  status: ProjectFileStatus;
+  codeSize: number;
+  lines: number;
+  truncated: boolean;
+  truncatedNote?: string;
+  score?: number;
+  result?: ReviewResult;
+  code?: string; // only present on the per-file detail fetch
+  attempts: number;
+  error?: string;
+  failureReason?: FailureReason;
+}
+
+export interface WorstFile {
+  fileId: string;
+  path: string;
+  score: number;
+  issueCount: number;
+}
+
+export interface ProjectReview {
+  id: string;
+  status: ProjectReviewStatus;
+  originalFilename: string;
+  profile: ProjectProfile;
+  reviewMode: ReviewMode;
+  fileCount: number;
+  excludedCount: number;
+  filesAnalyzed: number;
+  totalLines: number;
+  totalSize: number;
+  overallScore?: number;
+  worstFiles: WorstFile[];
+  mostCommonIssueCategory?: string;
+  summary?: string;
+  recommendations: string[];
+  createdAt: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  error?: string;
+  failureReason?: FailureReason;
+  files: ProjectFile[];
+}
+
+export interface ProjectReviewSummary {
+  id: string;
+  status: ProjectReviewStatus;
+  originalFilename: string;
+  profile: ProjectProfile;
+  fileCount: number;
+  filesAnalyzed: number;
+  overallScore?: number;
+  createdAt: string;
+  completedAt?: string;
+}

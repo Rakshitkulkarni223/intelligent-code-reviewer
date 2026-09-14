@@ -7,6 +7,9 @@ import ReviewProgressPage from './pages/ReviewProgressPage';
 import ReviewResultPage from './pages/ReviewResultPage';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
+import ProjectProgressPage from './pages/ProjectProgressPage';
+import ProjectResultPage from './pages/ProjectResultPage';
+import ProjectFileResultPage from './pages/ProjectFileResultPage';
 
 export default function App() {
   return (
@@ -17,6 +20,9 @@ export default function App() {
         <Route path="/reviews/new" element={<NewReviewPage />} />
         <Route path="/reviews/:reviewId/progress" element={<ReviewProgressPage />} />
         <Route path="/reviews/:reviewId" element={<ReviewResultPage />} />
+        <Route path="/projects/:projectId/progress" element={<ProjectProgressPage />} />
+        <Route path="/projects/:projectId/files/:fileId" element={<ProjectFileResultPage />} />
+        <Route path="/projects/:projectId" element={<ProjectResultPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

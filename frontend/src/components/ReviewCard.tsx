@@ -4,7 +4,15 @@ import { failureMessage, formatDateTime, reviewLinkTo } from '../lib/reviewStatu
 import LanguageBadge from './LanguageBadge';
 import StatusBadge from './StatusBadge';
 
-export default function ReviewCard({ review, onRetry }: { review: Review; onRetry: (id: string) => void }) {
+export default function ReviewCard({
+  review,
+  onRetry,
+  onDelete,
+}: {
+  review: Review;
+  onRetry: (id: string) => void;
+  onDelete?: (id: string) => void;
+}) {
   const issueCount = review.result?.issues.length;
 
   return (
@@ -52,6 +60,11 @@ export default function ReviewCard({ review, onRetry }: { review: Review; onRetr
             <Link className="btn btn-primary" to={reviewLinkTo(review)}>
               {review.status === 'COMPLETED' ? 'View Review →' : 'View Progress →'}
             </Link>
+          )}
+          {onDelete && (
+            <button className="btn btn-danger" onClick={() => onDelete(review.id)} aria-label="Delete review">
+              Delete
+            </button>
           )}
         </div>
       </div>

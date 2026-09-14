@@ -3,13 +3,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.code_validation import router as code_validation_router
+from app.api.projects import router as projects_router
 from app.api.reviews import router as reviews_router
 from app.config import settings
 from app.services import historical_data
+from app.workers.project_review_worker import run_worker as run_project_worker
 from app.workers.review_worker import run_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -44,11 +47,32 @@ async def lifespan(app: FastAPI):
 
     worker_task = asyncio.create_task(run_worker())
     worker_task.add_done_callback(_on_worker_done)
+    project_worker_task = asyncio.create_task(run_project_worker())
+    project_worker_task.add_done_callback(_on_worker_done)
     yield
     worker_task.cancel()
+    project_worker_task.cancel()
 
 
 app = FastAPI(title="Intelligent Code Reviewer API", lifespan=lifespan)
+
+# Cross-check correction (docs/PROJECT_ZIP_REVIEW_PLAN.md §8): max_request_bytes
+# was declared in config.py but never actually enforced anywhere in this
+# backend before this feature -- fixed here for every route except
+# /api/projects, which enforces its own (larger) max_zip_bytes limit itself
+# after reading the body, since a zip upload is expected to exceed the
+# JSON-request limit.
+@app.middleware("http")
+async def enforce_max_request_bytes(request: Request, call_next):
+    if not request.url.path.startswith("/api/projects"):
+        content_length = request.headers.get("content-length")
+        if content_length is not None and int(content_length) > settings.max_request_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"Request exceeds the {settings.max_request_bytes // 1024} KB limit"},
+            )
+    return await call_next(request)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +84,7 @@ app.add_middleware(
 
 app.include_router(reviews_router)
 app.include_router(code_validation_router)
+app.include_router(projects_router)
 
 
 @app.get("/health")

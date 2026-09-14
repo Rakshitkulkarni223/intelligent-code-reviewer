@@ -22,3 +22,9 @@ export function retryReview(reviewId: string) {
     method: 'POST',
   });
 }
+
+export function deleteReview(reviewId: string) {
+  return apiFetch<void>(`/api/reviews/${reviewId}`, {
+    method: 'DELETE',
+  });
+}

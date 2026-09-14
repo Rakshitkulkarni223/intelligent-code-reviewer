@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 
 from app.schemas.review import CreateReviewRequest, CreateReviewResponse, Review
 from app.security.auth import get_current_user_id
@@ -42,6 +42,16 @@ async def get_review(review_id: str, user_id: str = Depends(get_current_user_id)
         # exactly like one that doesn't exist -- it never leaks existence.
         raise HTTPException(status_code=404, detail="Review not found")
     return review
+
+
+@router.delete("/{review_id}", status_code=204)
+async def delete_review(review_id: str, user_id: str = Depends(get_current_user_id)):
+    deleted = await firestore_service.delete_review(user_id, review_id)
+    if not deleted:
+        # Same 404 as get_review for a missing/not-owned review -- ownership
+        # is enforced by only ever deleting scoped to the caller's user_id.
+        raise HTTPException(status_code=404, detail="Review not found")
+    return Response(status_code=204)
 
 
 @router.post("/{review_id}/retry", response_model=CreateReviewResponse)

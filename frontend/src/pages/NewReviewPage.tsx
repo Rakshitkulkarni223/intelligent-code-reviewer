@@ -5,10 +5,13 @@ import LanguageSelector from '../components/LanguageSelector';
 import ReviewButton from '../components/ReviewButton';
 import ConfirmModal from '../components/ConfirmModal';
 import ValidationStatus from '../components/ValidationStatus';
+import ProjectUploadPanel from '../components/ProjectUploadPanel';
 import { detectLanguage } from '../lib/languageDetect';
 import { createReview } from '../services/reviews';
 import { useToast } from '../hooks/useToast';
 import { useCodeValidation } from '../hooks/useCodeValidation';
+
+type InputMode = 'single' | 'project';
 
 const MAX_BYTES = 500 * 1024; // 500 KB, per spec input limits
 const MAX_LINES = 50_000;
@@ -28,6 +31,7 @@ interface EditCodeState {
 }
 
 export default function NewReviewPage() {
+  const [mode, setMode] = useState<InputMode>('single');
   const location = useLocation();
   // Set when arriving via an "Edit Code" action (e.g. from a completed or
   // failed review) that wants this page pre-filled instead of blank -- see
@@ -138,6 +142,18 @@ export default function NewReviewPage() {
         </div>
       </div>
 
+      <div className="tab-bar" role="tablist">
+        <button role="tab" aria-selected={mode === 'single'} className={`tab-button${mode === 'single' ? ' active' : ''}`} onClick={() => setMode('single')}>
+          Single File
+        </button>
+        <button role="tab" aria-selected={mode === 'project'} className={`tab-button${mode === 'project' ? ' active' : ''}`} onClick={() => setMode('project')}>
+          Project (.zip)
+        </button>
+      </div>
+
+      {mode === 'project' ? (
+        <ProjectUploadPanel />
+      ) : (
       <div className="editor-panel">
         <div className="editor-toolbar">
           <div className="editor-toolbar-left">
@@ -218,6 +234,7 @@ export default function NewReviewPage() {
           </div>
         </div>
       </div>
+      )}
 
       {confirmClear && (
         <ConfirmModal
