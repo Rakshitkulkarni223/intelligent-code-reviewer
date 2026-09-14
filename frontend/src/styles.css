@@ -750,8 +750,8 @@ button {
 
 .score-bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; font-size: 13px; }
 .score-bar-label { width: 100px; color: var(--text-muted); flex-shrink: 0; font-weight: 500; }
-.score-bar-track { flex: 1; height: 7px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
-.score-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); border-radius: 999px; transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+.score-bar-track { display: block; flex: 1; height: 7px; background: var(--surface-raised); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.score-bar-fill { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); border-radius: 999px; transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
 .score-bar-value { width: 34px; text-align: right; color: var(--text-muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* ---- issue cards ---- */
