@@ -229,7 +229,6 @@ button {
   flex: 1;
   min-width: 0;
   padding: 36px 44px;
-  max-width: 1400px;
   overflow-y: auto;
 }
 

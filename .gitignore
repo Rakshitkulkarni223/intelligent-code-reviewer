@@ -6,6 +6,7 @@ credentials.json
 service-account.json
 *.key
 *.pem
+qwiklabs-*.json
 
 # node
 node_modules/
