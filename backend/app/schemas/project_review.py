@@ -141,6 +141,11 @@ class ProjectReviewSummary(BaseModel):
     fileCount: int
     filesAnalyzed: int
     overallScore: float | None = None
+    # A project-level aggregate (already computed once in finalize_project),
+    # not a per-file breakdown -- the dashboard's "Important metric rule" is
+    # project overallScore/aggregates feed global metrics, individual file
+    # scores/issues stay inside that project's own detail view.
+    mostCommonIssueCategory: str | None = None
     createdAt: datetime
     completedAt: datetime | None = None
 

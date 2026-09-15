@@ -226,6 +226,7 @@ export interface ProjectReviewSummary {
   fileCount: number;
   filesAnalyzed: number;
   overallScore?: number;
+  mostCommonIssueCategory?: string;
   createdAt: string;
   completedAt?: string;
 }

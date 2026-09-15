@@ -299,6 +299,7 @@ async def list_project_reviews(user_id: str) -> list[ProjectReviewSummary]:
         ProjectReviewSummary(
             id=p.id, status=p.status, originalFilename=p.originalFilename, profile=p.profile,
             fileCount=p.fileCount, filesAnalyzed=p.filesAnalyzed, overallScore=p.overallScore,
+            mostCommonIssueCategory=p.mostCommonIssueCategory,
             createdAt=p.createdAt, completedAt=p.completedAt,
         )
         for p in projects

@@ -81,6 +81,7 @@ export default function HistoryPage() {
     );
   }, [projects, sort]);
 
+
   const filtered = useMemo(() => {
     if (!reviews) return [];
     let result = reviews;
@@ -171,11 +172,11 @@ export default function HistoryPage() {
         </div>
       </div>
 
-      <div className="segmented" role="tablist" style={{ marginBottom: 16 }}>
-        <button role="tab" aria-selected={tab === 'reviews'} className={`segmented-option${tab === 'reviews' ? ' active' : ''}`} onClick={() => setTab('reviews')}>
+      <div className="tab-bar" role="tablist">
+        <button role="tab" aria-selected={tab === 'reviews'} className={`tab-button${tab === 'reviews' ? ' active' : ''}`} onClick={() => setTab('reviews')}>
           Code Reviews
         </button>
-        <button role="tab" aria-selected={tab === 'projects'} className={`segmented-option${tab === 'projects' ? ' active' : ''}`} onClick={() => setTab('projects')}>
+        <button role="tab" aria-selected={tab === 'projects'} className={`tab-button${tab === 'projects' ? ' active' : ''}`} onClick={() => setTab('projects')}>
           Project Reviews
         </button>
       </div>

@@ -56,7 +56,7 @@ export default function CategoryPieChart({
           );
         })}
       </svg>
-      <div style={{ flex: 1, minWidth: 140 }}>
+      <div style={{ flex: 1, minWidth: 140, ...(entries.length > 6 ? { maxHeight: 6 * 31, overflowY: 'auto', paddingRight: 4 } : {}) }}>
         {entries.map(([label, value], i) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, marginBottom: 9 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: PALETTE[i % PALETTE.length], flexShrink: 0 }} aria-hidden="true" />
