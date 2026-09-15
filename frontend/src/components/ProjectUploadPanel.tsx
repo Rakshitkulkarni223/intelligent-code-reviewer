@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import type { ManifestFile, ProjectManifest, ReviewMode } from '../types';
 import { createProjectReview, uploadProjectManifest } from '../services/projects';
+import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../hooks/useToast';
 import { filesToZip, isSingleZipFile } from '../lib/buildZip';
 import ProjectFileTree from './ProjectFileTree';
@@ -22,6 +24,7 @@ export default function ProjectUploadPanel() {
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
   const { show } = useToast();
+  const queryClient = useQueryClient();
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const applyMode = (mode: ReviewMode, files: ManifestFile[]) => {
@@ -111,6 +114,7 @@ export default function ProjectUploadPanel() {
     setSubmitting(true);
     try {
       const { projectId } = await createProjectReview(manifest.uploadToken, [...selected], reviewMode);
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
       navigate(`/projects/${projectId}/progress`);
     } catch (e) {
       show(e instanceof Error ? e.message : 'Failed to start project review', 'error');

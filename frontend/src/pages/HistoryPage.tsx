@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteReview, listReviews, retryReview } from '../services/reviews';
 import { listProjectReviews } from '../services/projects';
-import type { ProjectReviewSummary, Review, ReviewStatus } from '../types';
+import type { Review, ReviewStatus } from '../types';
+import { queryKeys } from '../lib/queryKeys';
 import { SUPPORTED_LANGUAGES, languageLabel } from '../lib/languageDetect';
 import ConfirmModal from '../components/ConfirmModal';
 import DateRangeFilter from '../components/DateRangeFilter';
@@ -57,9 +59,6 @@ function pageNumbers(current: number, total: number): (number | '…')[] {
 
 export default function HistoryPage() {
   const [tab, setTab] = useState<HistoryTab>('reviews');
-  const [reviews, setReviews] = useState<Review[] | null>(null);
-  const [projects, setProjects] = useState<ProjectReviewSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [language, setLanguage] = useState('all');
   const [status, setStatus] = useState<StatusFilter>('all');
@@ -70,11 +69,10 @@ export default function HistoryPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    listReviews().then(setReviews).catch((e) => setError(e.message));
-    listProjectReviews().then(setProjects).catch(() => setProjects([]));
-  }, []);
+  const { data: reviews, error } = useQuery({ queryKey: queryKeys.reviews, queryFn: listReviews });
+  const { data: projects } = useQuery({ queryKey: queryKeys.projectReviews, queryFn: listProjectReviews });
 
   const sortedProjects = useMemo(() => {
     if (!projects) return [];
@@ -131,6 +129,7 @@ export default function HistoryPage() {
   const handleRetry = async (reviewId: string) => {
     try {
       await retryReview(reviewId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviews });
       show('Review resubmitted', 'success');
       navigate(`/reviews/${reviewId}/progress`);
     } catch (e) {
@@ -144,17 +143,16 @@ export default function HistoryPage() {
     setPendingDeleteId(null);
     try {
       await deleteReview(id);
-      // Drop it from local state directly rather than refetching -- the
-      // dashboard/history metrics are always derived from this array, so
-      // removing it here is what makes them reflect the deletion immediately.
-      setReviews((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      // Drop it from the shared cache entry directly rather than refetching
+      // -- also keeps Dashboard's copy of this same query in sync.
+      queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
       show('Review deleted', 'success');
     } catch (e) {
       show(e instanceof Error ? e.message : 'Delete failed', 'error');
     }
   };
 
-  if (error) return <ErrorState message={error} />;
+  if (error) return <ErrorState message={error instanceof Error ? error.message : 'Failed to load'} />;
 
   return (
     <div>
@@ -183,7 +181,7 @@ export default function HistoryPage() {
       </div>
 
       {tab === 'projects' ? (
-        projects === null ? (
+        projects === undefined ? (
           <div>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 108, marginBottom: 12 }} />)}</div>
         ) : sortedProjects.length === 0 ? (
           <EmptyState icon="📁" title="No project reviews yet" description="Upload a .zip from New Review to get a project-level review." />
@@ -216,7 +214,7 @@ export default function HistoryPage() {
         )}
       </div>
 
-      {reviews === null ? (
+      {reviews === undefined ? (
         <div>{[1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 108, marginBottom: 12 }} />)}</div>
       ) : filtered.length === 0 ? (
         <EmptyState

@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteReview, listReviews, retryReview } from '../services/reviews';
 import type { Review } from '../types';
+import { queryKeys } from '../lib/queryKeys';
 import CategoryPieChart from '../components/CategoryPieChart';
 import ConfirmModal from '../components/ConfirmModal';
 import DistributionBar from '../components/DistributionBar';
@@ -27,23 +29,21 @@ function BreakdownCard({ title, children }: { title: string; children: ReactNode
 }
 
 export default function DashboardPage() {
-  const [reviews, setReviews] = useState<Review[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const navigate = useNavigate();
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
-  const load = () => {
-    setError(null);
-    setReviews(null);
-    listReviews().then(setReviews).catch((e) => setError(e.message));
-  };
-
-  useEffect(load, []);
+  // React Query keeps whatever was last fetched in cache, so navigating back
+  // to this page renders that immediately instead of blanking to a skeleton
+  // -- it revalidates in the background (staleTime: 30s, set globally) and
+  // only re-renders if the data actually changed.
+  const { data: reviews, error, refetch } = useQuery({ queryKey: queryKeys.reviews, queryFn: listReviews });
 
   const handleRetry = async (reviewId: string) => {
     try {
       await retryReview(reviewId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviews });
       show('Review resubmitted', 'success');
       navigate(`/reviews/${reviewId}/progress`);
     } catch (e) {
@@ -58,15 +58,16 @@ export default function DashboardPage() {
     try {
       await deleteReview(id);
       // All the stats below are recomputed from `reviews` on every render, so
-      // dropping the deleted one from state here is what makes them update.
-      setReviews((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+      // dropping the deleted one from the cache here is what makes them
+      // update -- also keeps History's copy of this same cache entry in sync.
+      queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
       show('Review deleted', 'success');
     } catch (e) {
       show(e instanceof Error ? e.message : 'Delete failed', 'error');
     }
   };
 
-  if (error) return <ErrorState message={error} onRetry={load} />;
+  if (error) return <ErrorState message={error instanceof Error ? error.message : 'Failed to load'} onRetry={() => refetch()} />;
 
   if (!reviews) {
     return (

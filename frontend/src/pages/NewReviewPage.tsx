@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import CodeEditor, { type EditorMarker } from '../components/CodeEditor';
 import LanguageSelector from '../components/LanguageSelector';
 import ReviewButton from '../components/ReviewButton';
@@ -8,6 +9,7 @@ import ValidationStatus from '../components/ValidationStatus';
 import ProjectUploadPanel from '../components/ProjectUploadPanel';
 import { detectLanguage } from '../lib/languageDetect';
 import { createReview } from '../services/reviews';
+import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../hooks/useToast';
 import { useCodeValidation } from '../hooks/useCodeValidation';
 
@@ -53,6 +55,7 @@ export default function NewReviewPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
   const detection = useMemo(() => detectLanguage(code, filename), [code, filename]);
   const language = languageOverride ?? detection.language;
@@ -122,6 +125,9 @@ export default function NewReviewPage() {
     setSubmitting(true);
     try {
       const { reviewId } = await createReview(code, language, crypto.randomUUID(), basedOnReviewId);
+      // Otherwise Dashboard/History would keep showing their cached list
+      // without this new review until the 30s staleTime lapses.
+      queryClient.invalidateQueries({ queryKey: queryKeys.reviews });
       navigate(`/reviews/${reviewId}/progress`);
     } catch (e) {
       // Preserve the code and validation result on failure -- only

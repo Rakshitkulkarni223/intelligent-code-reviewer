@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { cancelProjectReview, getProjectReview } from '../services/projects';
 import type { ProjectReview } from '../types';
+import { queryKeys } from '../lib/queryKeys';
 import ProjectFileStatusList from '../components/ProjectFileStatusList';
 import ErrorState from '../components/ErrorState';
 import { useToast } from '../hooks/useToast';
@@ -21,6 +23,7 @@ export default function ProjectProgressPage() {
   const [cancelling, setCancelling] = useState(false);
   const navigate = useNavigate();
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!projectId) return;
@@ -33,6 +36,10 @@ export default function ProjectProgressPage() {
         if (cancelled) return;
         setProject(p);
         if (p.status === 'COMPLETED' || p.status === 'FAILED' || p.status === 'CANCELLED') {
+          // History's project list shows status/score for this same project
+          // -- without this it'd keep showing "ANALYZING" until its own
+          // staleTime lapses, even though this page already knows better.
+          queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
           navigate(`/projects/${projectId}`, { replace: true });
           return;
         }
@@ -44,13 +51,14 @@ export default function ProjectProgressPage() {
     poll();
 
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [projectId, navigate]);
+  }, [projectId, navigate, queryClient]);
 
   const handleCancel = async () => {
     if (!projectId) return;
     setCancelling(true);
     try {
       await cancelProjectReview(projectId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
       show('Cancelling remaining files…', 'success');
     } catch (e) {
       show(e instanceof Error ? e.message : 'Failed to cancel', 'error');
