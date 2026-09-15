@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 
 from app.config import settings
 from app.schemas.project_review import CreateProjectRequest, CreateProjectResponse, ProjectManifest, ProjectReview
@@ -68,6 +68,14 @@ async def get_project_file(project_id: str, file_id: str, user_id: str = Depends
         raise HTTPException(status_code=404, detail="File not found")
     pf, code = detail
     return {**pf.model_dump(mode="json"), "code": code}
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: str, user_id: str = Depends(get_current_user_id)):
+    deleted = await project_review_service.delete_project_review(user_id, project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return Response(status_code=204)
 
 
 @router.post("/{project_id}/cancel", response_model=ProjectReview)

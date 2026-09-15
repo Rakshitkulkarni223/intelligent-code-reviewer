@@ -1,8 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ProjectFile } from '../types';
+import type { ProjectFile, ProjectFileStatus } from '../types';
 
 type SortKey = 'path' | 'score' | 'issues';
+
+// Mirrors StatusBadge/ProjectReviewCard's tinted-pill treatment -- a plain
+// .badge with no override falls back to var(--surface-raised), the exact
+// color of the card this table sits in, so the pill had no visible fill.
+const FILE_STATUS_COLORS: Record<ProjectFileStatus, string> = {
+  QUEUED: 'var(--text-muted)', ANALYZING: 'var(--accent)', COMPLETED: 'var(--success)',
+  FAILED: 'var(--danger)', SKIPPED: 'var(--text-muted)',
+};
+const FILE_STATUS_BACKGROUNDS: Record<ProjectFileStatus, string> = {
+  QUEUED: 'var(--neutral-bg)', ANALYZING: 'var(--accent-muted)', COMPLETED: 'var(--success-bg)',
+  FAILED: 'var(--danger-bg)', SKIPPED: 'var(--neutral-bg)',
+};
 
 export default function ProjectScoreTable({ projectId, files }: { projectId: string; files: ProjectFile[] }) {
   const [search, setSearch] = useState('');
@@ -64,7 +76,13 @@ export default function ProjectScoreTable({ projectId, files }: { projectId: str
           >
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.path}</span>
             <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>
-              {f.status === 'COMPLETED' && f.score != null ? f.score.toFixed(1) : <span className="badge">{f.status.toLowerCase()}</span>}
+              {f.status === 'COMPLETED' && f.score != null ? (
+                f.score.toFixed(1)
+              ) : (
+                <span className="badge" style={{ background: FILE_STATUS_BACKGROUNDS[f.status], color: FILE_STATUS_COLORS[f.status], borderColor: 'transparent' }}>
+                  {f.status.toLowerCase()}
+                </span>
+              )}
             </span>
             <span style={{ width: 90, textAlign: 'right', color: 'var(--text-muted)', flexShrink: 0 }}>
               {f.result ? `${f.result.issues.length} issue${f.result.issues.length === 1 ? '' : 's'}` : ''}

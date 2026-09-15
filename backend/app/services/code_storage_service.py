@@ -75,3 +75,24 @@ async def put_original_zip(user_id: str, project_id: str, data: bytes) -> str:
     blob = _get_client().bucket(settings.project_files_bucket).blob(_blob_path(uri))
     await asyncio.to_thread(blob.upload_from_string, data, content_type="application/zip")
     return uri
+
+
+async def delete_project_data(user_id: str, project_id: str) -> None:
+    """Removes every object this project ever wrote (the zip plus every
+    per-file text blob) -- everything for a project lives under the same
+    put()/put_original_zip() prefix, so one prefix delete covers it all.
+    Called from project_review_service.delete_project_review; best-effort
+    since a project can be deleted at any status, including before any
+    object was ever written."""
+    if settings.local_mode:
+        prefix = f"local://{project_id}/"
+        async with _lock:
+            for uri in [u for u in _store if u.startswith(prefix)]:
+                del _store[uri]
+        return
+
+    prefix = f"{user_id}/{project_id}/"
+    bucket = _get_client().bucket(settings.project_files_bucket)
+    blobs = await asyncio.to_thread(lambda: list(bucket.list_blobs(prefix=prefix)))
+    for blob in blobs:
+        await asyncio.to_thread(blob.delete)

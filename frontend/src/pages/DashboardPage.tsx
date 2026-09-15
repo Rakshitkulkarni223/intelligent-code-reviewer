@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteReview, listReviews, retryReview } from '../services/reviews';
-import { listProjectReviews } from '../services/projects';
+import { deleteProjectReview, listProjectReviews } from '../services/projects';
 import type { ProjectReviewSummary, Review } from '../types';
 import { queryKeys } from '../lib/queryKeys';
 import CategoryPieChart from '../components/CategoryPieChart';
@@ -49,8 +49,11 @@ interface ScoredItem {
   label: string;
 }
 
+type PendingDelete = { id: string; kind: 'review' | 'project' };
+
 export default function DashboardPage() {
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -74,18 +77,32 @@ export default function DashboardPage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!pendingDeleteId) return;
-    const id = pendingDeleteId;
-    setPendingDeleteId(null);
+    if (!pendingDelete || isDeleting) return;
+    const { id, kind } = pendingDelete;
+    // Keeps the modal open (with a spinner) for the whole request instead of
+    // closing right away -- a project delete cleans up every file's storage
+    // object and can take a few seconds, and closing immediately let people
+    // re-open the modal and fire a second delete for the same item before
+    // the first had even finished.
+    setIsDeleting(true);
     try {
-      await deleteReview(id);
-      // All the stats below are recomputed from `reviews` on every render, so
-      // dropping the deleted one from the cache here is what makes them
-      // update -- also keeps History's copy of this same cache entry in sync.
-      queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
-      show('Review deleted', 'success');
+      if (kind === 'review') {
+        await deleteReview(id);
+        // All the stats below are recomputed from `reviews` on every render,
+        // so dropping the deleted one from the cache here is what makes them
+        // update -- also keeps History's copy of this same cache entry in sync.
+        queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+        show('Review deleted', 'success');
+      } else {
+        await deleteProjectReview(id);
+        queryClient.setQueryData<ProjectReviewSummary[]>(queryKeys.projectReviews, (prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
+        show('Project review deleted', 'success');
+      }
+      setPendingDelete(null);
     } catch (e) {
       show(e instanceof Error ? e.message : 'Delete failed', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -287,18 +304,23 @@ export default function DashboardPage() {
       </div>
       {recentActivity.map((item) =>
         item.kind === 'review'
-          ? <ReviewCard key={`review-${item.data.id}`} review={item.data} onRetry={handleRetry} onDelete={setPendingDeleteId} />
-          : <ProjectReviewCard key={`project-${item.data.id}`} project={item.data} />
+          ? <ReviewCard key={`review-${item.data.id}`} review={item.data} onRetry={handleRetry} onDelete={(id) => setPendingDelete({ id, kind: 'review' })} />
+          : <ProjectReviewCard key={`project-${item.data.id}`} project={item.data} onDelete={(id) => setPendingDelete({ id, kind: 'project' })} />
       )}
 
-      {pendingDeleteId && (
+      {pendingDelete && (
         <ConfirmModal
-          title="Delete this review?"
-          body="This permanently deletes the review and its result, and updates your dashboard metrics. This can't be undone."
+          title={pendingDelete.kind === 'review' ? 'Delete this review?' : 'Delete this project review?'}
+          body={
+            pendingDelete.kind === 'review'
+              ? "This permanently deletes the review and its result, and updates your dashboard metrics. This can't be undone."
+              : "This permanently deletes the project review and every analyzed file in it, and updates your dashboard metrics. This can't be undone."
+          }
           confirmLabel="Delete"
           danger
+          loading={isDeleting}
           onConfirm={handleConfirmDelete}
-          onCancel={() => setPendingDeleteId(null)}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </div>

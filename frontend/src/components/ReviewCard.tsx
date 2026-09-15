@@ -3,6 +3,7 @@ import type { Review } from '../types';
 import { failureMessage, formatDateTime, reviewLinkTo } from '../lib/reviewStatus';
 import LanguageBadge from './LanguageBadge';
 import StatusBadge from './StatusBadge';
+import { TrashIcon } from './icons';
 
 export default function ReviewCard({
   review,
@@ -19,7 +20,14 @@ export default function ReviewCard({
     <div className="review-card">
       <div className="review-card-top">
         <LanguageBadge language={review.language} />
-        <StatusBadge status={review.status} />
+        <div className="review-card-top-right">
+          <StatusBadge status={review.status} />
+          {onDelete && (
+            <button className="icon-btn icon-btn-sm" onClick={() => onDelete(review.id)} aria-label="Delete review" title="Delete review">
+              <TrashIcon />
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="review-card-summary">
@@ -60,11 +68,6 @@ export default function ReviewCard({
             <Link className="btn btn-primary" to={reviewLinkTo(review)}>
               {review.status === 'COMPLETED' ? 'View Review →' : 'View Progress →'}
             </Link>
-          )}
-          {onDelete && (
-            <button className="btn btn-danger" onClick={() => onDelete(review.id)} aria-label="Delete review">
-              Delete
-            </button>
           )}
         </div>
       </div>

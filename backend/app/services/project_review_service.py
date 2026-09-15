@@ -306,6 +306,19 @@ async def list_project_reviews(user_id: str) -> list[ProjectReviewSummary]:
     ]
 
 
+async def delete_project_review(user_id: str, project_id: str) -> bool:
+    """Deletes a project review, its files, and every object it wrote to
+    storage (the zip plus per-file text) -- returns whether it existed.
+    Storage cleanup runs first so a crash between the two steps leaves an
+    orphaned-but-harmless Firestore doc rather than orphaned GCS objects
+    with nothing left pointing at them to ever clean up."""
+    project = await firestore_service.get_project_review(user_id, project_id, include_files=False)
+    if not project:
+        return False
+    await code_storage_service.delete_project_data(user_id, project_id)
+    return await firestore_service.delete_project_review(user_id, project_id)
+
+
 async def get_project_file_detail(user_id: str, project_id: str, file_id: str) -> tuple[ProjectFile, str] | None:
     project = await firestore_service.get_project_review(user_id, project_id, include_files=False)
     if not project:

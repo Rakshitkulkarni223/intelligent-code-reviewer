@@ -74,3 +74,7 @@ export function getProjectFile(projectId: string, fileId: string) {
 export function cancelProjectReview(projectId: string) {
   return jsonFetch<ProjectReview>(`/api/projects/${projectId}/cancel`, { method: 'POST' });
 }
+
+export function deleteProjectReview(projectId: string) {
+  return jsonFetch<void>(`/api/projects/${projectId}`, { method: 'DELETE' });
+}

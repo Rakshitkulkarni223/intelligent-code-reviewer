@@ -315,3 +315,22 @@ async def list_project_files(user_id: str, project_id: str) -> list[ProjectFile]
         async with _project_lock:
             return list(_project_files_store.get(user_id, {}).get(project_id, {}).values())
     return [ProjectFile(**doc.to_dict()) async for doc in _project_ref(user_id, project_id).collection("files").stream()]
+
+
+async def delete_project_review(user_id: str, project_id: str) -> bool:
+    """Deletes a project review and its files subcollection, returning
+    whether it existed. Mirrors delete_review's shape -- ownership is
+    enforced by only ever deleting scoped to the caller's own user_id."""
+    if settings.local_mode:
+        async with _project_lock:
+            _project_files_store.get(user_id, {}).pop(project_id, None)
+            return _project_store.get(user_id, {}).pop(project_id, None) is not None
+
+    ref = _project_ref(user_id, project_id)
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return False
+    async for doc in ref.collection("files").stream():
+        await doc.reference.delete()
+    await ref.delete()
+    return True

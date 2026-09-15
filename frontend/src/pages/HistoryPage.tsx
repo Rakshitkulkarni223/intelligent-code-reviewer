@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { deleteReview, listReviews, retryReview } from '../services/reviews';
-import { listProjectReviews } from '../services/projects';
-import type { Review, ReviewStatus } from '../types';
+import { deleteProjectReview, listProjectReviews } from '../services/projects';
+import type { ProjectReviewSummary, Review, ReviewStatus } from '../types';
 import { queryKeys } from '../lib/queryKeys';
 import { SUPPORTED_LANGUAGES, languageLabel } from '../lib/languageDetect';
 import ConfirmModal from '../components/ConfirmModal';
@@ -19,6 +19,7 @@ type SortKey = 'date' | 'score';
 type StatusFilter = ReviewStatus | 'all';
 type LanguageFilter = string;
 type HistoryTab = 'reviews' | 'projects';
+type PendingDelete = { id: string; kind: 'review' | 'project' };
 
 const PAGE_SIZE = 8;
 
@@ -66,7 +67,8 @@ export default function HistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [sort, setSort] = useState<SortKey>('date');
   const [page, setPage] = useState(1);
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
   const { show } = useToast();
   const queryClient = useQueryClient();
@@ -139,17 +141,31 @@ export default function HistoryPage() {
   };
 
   const handleConfirmDelete = async () => {
-    if (!pendingDeleteId) return;
-    const id = pendingDeleteId;
-    setPendingDeleteId(null);
+    if (!pendingDelete || isDeleting) return;
+    const { id, kind } = pendingDelete;
+    // Keeps the modal open (with a spinner) for the whole request instead of
+    // closing right away -- a project delete cleans up every file's storage
+    // object and can take a few seconds, and closing immediately let people
+    // re-open the modal and fire a second delete for the same item before
+    // the first had even finished.
+    setIsDeleting(true);
     try {
-      await deleteReview(id);
-      // Drop it from the shared cache entry directly rather than refetching
-      // -- also keeps Dashboard's copy of this same query in sync.
-      queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
-      show('Review deleted', 'success');
+      if (kind === 'review') {
+        await deleteReview(id);
+        // Drop it from the shared cache entry directly rather than refetching
+        // -- also keeps Dashboard's copy of this same query in sync.
+        queryClient.setQueryData<Review[]>(queryKeys.reviews, (prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+        show('Review deleted', 'success');
+      } else {
+        await deleteProjectReview(id);
+        queryClient.setQueryData<ProjectReviewSummary[]>(queryKeys.projectReviews, (prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
+        show('Project review deleted', 'success');
+      }
+      setPendingDelete(null);
     } catch (e) {
       show(e instanceof Error ? e.message : 'Delete failed', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -187,7 +203,9 @@ export default function HistoryPage() {
         ) : sortedProjects.length === 0 ? (
           <EmptyState icon="📁" title="No project reviews yet" description="Upload a .zip from New Review to get a project-level review." />
         ) : (
-          sortedProjects.map((p) => <ProjectReviewCard key={p.id} project={p} />)
+          sortedProjects.map((p) => (
+            <ProjectReviewCard key={p.id} project={p} onDelete={(id) => setPendingDelete({ id, kind: 'project' })} />
+          ))
         )
       ) : (
       <>
@@ -226,7 +244,7 @@ export default function HistoryPage() {
       ) : (
         <>
           {paged.map((r) => (
-            <ReviewCard key={r.id} review={r} onRetry={handleRetry} onDelete={setPendingDeleteId} />
+            <ReviewCard key={r.id} review={r} onRetry={handleRetry} onDelete={(id) => setPendingDelete({ id, kind: 'review' })} />
           ))}
 
           {totalPages > 1 && (
@@ -261,14 +279,19 @@ export default function HistoryPage() {
       </>
       )}
 
-      {pendingDeleteId && (
+      {pendingDelete && (
         <ConfirmModal
-          title="Delete this review?"
-          body="This permanently deletes the review and its result. This can't be undone."
+          title={pendingDelete.kind === 'review' ? 'Delete this review?' : 'Delete this project review?'}
+          body={
+            pendingDelete.kind === 'review'
+              ? "This permanently deletes the review and its result. This can't be undone."
+              : "This permanently deletes the project review and every analyzed file in it. This can't be undone."
+          }
           confirmLabel="Delete"
           danger
+          loading={isDeleting}
           onConfirm={handleConfirmDelete}
-          onCancel={() => setPendingDeleteId(null)}
+          onCancel={() => setPendingDelete(null)}
         />
       )}
     </div>

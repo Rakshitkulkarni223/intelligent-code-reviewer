@@ -11,26 +11,27 @@ const LABELS: Record<ReviewStatus, string> = {
 };
 
 const COLORS: Record<ReviewStatus, string> = {
-  DRAFT: 'var(--text-faint)',
+  DRAFT: 'var(--text-muted)',
   SUBMITTED: 'var(--text-muted)',
   QUEUED: 'var(--text-muted)',
   ANALYZING: 'var(--accent)',
   COMPLETED: 'var(--success)',
   FAILED: 'var(--danger)',
-  CANCELLED: 'var(--text-faint)',
+  CANCELLED: 'var(--text-muted)',
 };
 
 // Tinted background to pair with COLORS above for a pill-style status badge
-// (see StatusBadge) -- neutral statuses fall back to the app's standard
-// pill background rather than a color-specific tint.
+// (see StatusBadge) -- every status gets a visible tint here, including the
+// neutral ones, since var(--surface-raised) (the card's own background) made
+// those pills blend invisibly into the card instead of reading as a badge.
 const BACKGROUNDS: Record<ReviewStatus, string> = {
-  DRAFT: 'var(--surface-raised)',
-  SUBMITTED: 'var(--surface-raised)',
-  QUEUED: 'var(--surface-raised)',
+  DRAFT: 'var(--neutral-bg)',
+  SUBMITTED: 'var(--neutral-bg)',
+  QUEUED: 'var(--neutral-bg)',
   ANALYZING: 'var(--accent-muted)',
   COMPLETED: 'var(--success-bg)',
   FAILED: 'var(--danger-bg)',
-  CANCELLED: 'var(--surface-raised)',
+  CANCELLED: 'var(--neutral-bg)',
 };
 
 export function formatStatus(status: ReviewStatus): string {

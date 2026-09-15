@@ -18,6 +18,11 @@
   --success-bg: rgba(62, 207, 142, 0.12);
   --warning-bg: rgba(230, 180, 80, 0.12);
   --danger-bg: rgba(242, 84, 91, 0.12);
+  /* Tint for neutral statuses (Draft, Submitted, Queued, Cancelled) -- these
+     used to fall back to var(--surface-raised), the exact same color as the
+     card itself, so the pill had no visible fill at all and just looked like
+     floating text next to every other status's clearly tinted pill. */
+  --neutral-bg: rgba(143, 152, 171, 0.14);
   --radius: 14px;
   --radius-sm: 9px;
   --radius-lg: 18px;
@@ -285,6 +290,37 @@ button {
 
 .btn-ghost { background: transparent; border-color: transparent; box-shadow: none; }
 .btn-ghost:hover:not(:disabled) { background: var(--surface-hover); box-shadow: none; transform: none; }
+
+/* Compact circular icon-only action (e.g. per-card delete) -- flat by
+   default so it doesn't compete with the card's primary action button,
+   only picking up its danger color on hover/focus. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover:not(:disabled), .icon-btn:focus-visible:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Sized to sit flush with a .badge pill's height, for grouping the two in
+   a card's top-right corner (e.g. status badge + delete). */
+.icon-btn-sm { width: 22px; height: 22px; border-radius: 999px; }
+.icon-btn-sm svg { width: 12px; height: 12px; }
 
 /* ---- cards ---- */
 
@@ -839,11 +875,12 @@ button {
   margin-bottom: 10px;
   background: linear-gradient(180deg, var(--surface-raised), var(--surface));
   box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
-.review-card:hover { border-color: var(--border-strong); }
+.review-card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(-2px); }
 
 .review-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.review-card-top-right { display: flex; align-items: center; gap: 8px; }
 
 .review-card-summary {
   margin: 0 0 10px;
