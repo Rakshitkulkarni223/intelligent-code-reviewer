@@ -372,3 +372,37 @@ async def delete_github_integration(user_id: str) -> bool:
         return False
     await ref.delete()
     return True
+
+
+_NON_TERMINAL_PROJECT_STATUSES = ("QUEUED", "ANALYZING", "CANCELLING")
+
+
+async def list_stuck_projects() -> list[tuple[str, str]]:
+    """Every (user_id, project_id) currently in a non-terminal status
+    across every user -- called once at startup to recover work an
+    in-process queue lost across a restart. project_review_worker.py's own
+    module docstring already documents why: this queue has no Pub/Sub-
+    backed persistence, so a project mid-run when the process restarts is
+    simply abandoned -- its Firestore doc is left at whatever status it
+    last reached (often ANALYZING, or CANCELLING if a cancel landed right
+    before the restart), with no worker ever coming back to finish or
+    finalize it."""
+    if settings.local_mode:
+        async with _project_lock:
+            return [
+                (user_id, project_id)
+                for user_id, projects in _project_store.items()
+                for project_id, project in projects.items()
+                if project.status in _NON_TERMINAL_PROJECT_STATUSES
+            ]
+
+    query = _get_client().collection_group("projectReviews").where(
+        "status", "in", list(_NON_TERMINAL_PROJECT_STATUSES)
+    )
+    result: list[tuple[str, str]] = []
+    async for doc in query.stream():
+        # doc.reference.path is users/{userId}/projectReviews/{projectId} --
+        # the parent user_id isn't stored redundantly on the document itself.
+        user_id = doc.reference.parent.parent.id
+        result.append((user_id, doc.id))
+    return result

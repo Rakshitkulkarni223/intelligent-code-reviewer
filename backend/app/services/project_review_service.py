@@ -378,7 +378,10 @@ async def cancel_project_review(user_id: str, project_id: str) -> ProjectReview 
 # a fresh submission uses -- an already-COMPLETED file is never re-touched
 # just because it shares a run with files being retried.
 
-_RETRYABLE_PROJECT_STATUSES = frozenset({"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"})
+# Also used by project_review_worker.py to reject a redundant dequeue for a
+# project a previous run already finished -- see its own use of this set.
+TERMINAL_PROJECT_STATUSES = frozenset({"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"})
+_RETRYABLE_PROJECT_STATUSES = TERMINAL_PROJECT_STATUSES
 
 
 async def retry_project_files(user_id: str, project_id: str, file_ids: list[str] | None) -> ProjectReview | None:
@@ -676,3 +679,20 @@ async def finalize_project(user_id: str, project_id: str, cancelled: bool) -> No
         summary=summary, recommendations=recommendations,
     )
     logger.info("project review %s projectId=%s overallScore=%s", status.lower(), project_id, overall_score)
+
+
+async def recover_stuck_projects() -> int:
+    """Called once at startup (main.py's lifespan). Re-publishes every
+    project left in a non-terminal status by a previous process's restart
+    -- safe to do unconditionally because project_review_worker.py's
+    dispatch only ever processes files still QUEUED (see its own comment):
+    a project where every file already finished just gets immediately
+    finalized with no file re-analyzed; a project with some files still
+    QUEUED picks up exactly where it left off; a project sitting in
+    CANCELLING is still respected, since finalize_project reads the
+    project's current status, not a value cached from before the restart.
+    Returns how many were recovered, purely for the startup log line."""
+    stuck = await firestore_service.list_stuck_projects()
+    for user_id, project_id in stuck:
+        await project_queue_service.publish(user_id, project_id)
+    return len(stuck)

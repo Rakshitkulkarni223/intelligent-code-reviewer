@@ -12,7 +12,7 @@ from app.api.github import router as github_router
 from app.api.projects import router as projects_router
 from app.api.reviews import router as reviews_router
 from app.config import settings
-from app.services import historical_data
+from app.services import historical_data, project_review_service
 from app.workers.project_review_worker import run_worker as run_project_worker
 from app.workers.review_worker import run_worker
 
@@ -50,6 +50,21 @@ async def lifespan(app: FastAPI):
     worker_task.add_done_callback(_on_worker_done)
     project_worker_task = asyncio.create_task(run_project_worker())
     project_worker_task.add_done_callback(_on_worker_done)
+
+    # project_review_worker.py's queue has no Pub/Sub-backed persistence
+    # (see its own module docstring) -- a project mid-run when this process
+    # last stopped is otherwise abandoned forever, stuck in ANALYZING or
+    # CANCELLING with every file already finished but no worker left to
+    # ever finalize it. Best-effort: a query failure here (e.g. a missing
+    # Firestore composite index for the collection_group filter) must never
+    # block the app from starting.
+    try:
+        recovered = await project_review_service.recover_stuck_projects()
+        if recovered:
+            logger.info("recovered %s project review(s) stuck by a previous restart", recovered)
+    except Exception:  # noqa: BLE001
+        logger.warning("failed to recover stuck project reviews on startup", exc_info=True)
+
     yield
     worker_task.cancel()
     project_worker_task.cancel()

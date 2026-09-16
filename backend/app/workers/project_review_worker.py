@@ -106,6 +106,31 @@ async def _run_project(user_id: str, project_id: str) -> None:
         await project_review_service.finalize_project(user_id, project_id, cancelled=True)
         return
 
+    if project.status in project_review_service.TERMINAL_PROJECT_STATUSES:
+        # A duplicate/stale dequeue for a project a previous run of this
+        # exact loop already finished -- two retry publishes landing close
+        # together (e.g. two retry clicks before the first one's own
+        # terminal write lands) both end up in the queue for the same
+        # project_id, and the single worker loop processes them one after
+        # another. Without this guard, the second run barrels past the
+        # CANCELLING check above (which no longer applies -- the first run
+        # already resolved it), blindly overwrites the just-written terminal
+        # status with "ANALYZING", finds no QUEUED files left to do, and
+        # calls finalize_project again -- clobbering the first run's result.
+        # Worse, if a cancel request happens to land while *this* redundant
+        # run is briefly sitting at "ANALYZING", its "CANCELLING" write is
+        # the last thing anyone ever does to the project: no QUEUED file
+        # triggers a new publish, so it's stuck in CANCELLING forever (only
+        # recover_stuck_projects at the next process restart could ever
+        # touch it again). Seen live: projectId 77efc31eecc540738ef973499
+        # ddf1546 ended up with both a finalize(cancelled=True)'s cancelledAt
+        # and a later finalize(cancelled=False)'s completedAt/summary on the
+        # same document, with a final stray "CANCELLING" write on top.
+        logger.info(
+            "skipping redundant dequeue for already-%s project projectId=%s", project.status, project_id,
+        )
+        return
+
     await firestore_service.update_project_review(user_id, project_id, status="ANALYZING")
 
     pending = project_review_service.get_pending_upload(project_id)

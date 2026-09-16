@@ -537,6 +537,100 @@ def test_run_project_does_not_clobber_a_cancel_that_arrived_first(client):
     assert result["files"][0]["status"] == "SKIPPED"
 
 
+def test_run_project_ignores_a_redundant_dequeue_for_an_already_terminal_project(client):
+    """Regression test for a real bug hit in production (projectId
+    77efc31eecc540738ef973499ddf1546): two retry publishes for the same
+    project_id close together left two entries in the single worker's
+    queue. The single worker loop processes both, one after another --
+    the first _run_project() call finalizes the project normally, but
+    nothing stopped the *second* call from also running: it saw a
+    terminal status, blindly overwrote it with "ANALYZING" anyway (only
+    the CANCELLING status was special-cased), found no QUEUED files left,
+    and called finalize_project() a second time. If a cancel request
+    happened to land while this redundant second run briefly sat at
+    "ANALYZING", its "CANCELLING" write was the last thing ever done to
+    the project -- no QUEUED file remained to trigger a further publish,
+    so it was stuck in CANCELLING forever.
+
+    Reproduces the redundant dequeue directly (via client.portal.call, like
+    test_run_project_does_not_clobber_a_cancel_that_arrived_first above)
+    rather than racing two real retries: seeds a project already resolved
+    to CANCELLED with its one file SKIPPED, then calls _run_project() again
+    exactly as the second, stale queue entry would. Before the fix this
+    flipped status back to ANALYZING and then to PARTIAL (the file's
+    terminal status isn't QUEUED, so nothing gets re-analyzed, but
+    finalize_project still runs and overwrites the correct CANCELLED
+    result); after the fix it's a no-op."""
+    from app.schemas.project_review import ProjectFile, ProjectProfile, ProjectReview
+    from app.services import firestore_service
+    from app.workers import project_review_worker
+
+    user_id = "redundant_dequeue_user"
+    project_id = "redundant_dequeue_project"
+
+    async def seed_already_cancelled_project():
+        project = ProjectReview(
+            id=project_id, userId=user_id, status="CANCELLED",
+            originalFilename="t.zip", profile=ProjectProfile(),
+            fileCount=1, excludedCount=0, filesAnalyzed=1,
+            totalLines=1, totalSize=1, createdAt=firestore_service.now(),
+            cancelledAt=firestore_service.now(),
+        )
+        await firestore_service.create_project_review(project)
+        pf = ProjectFile(id="redundant_dequeue_file", path="main.py", language="python", tier="source", status="SKIPPED")
+        await firestore_service.create_project_file(user_id, project_id, pf)
+
+    client.portal.call(seed_already_cancelled_project)
+    client.portal.call(project_review_worker._run_project, user_id, project_id)
+
+    result = client.get(f"/api/projects/{project_id}", headers={"Authorization": f"Bearer {user_id}"}).json()
+    assert result["status"] == "CANCELLED"
+    assert result["files"][0]["status"] == "SKIPPED"
+
+
+def test_recover_stuck_projects_finalizes_projects_abandoned_by_a_restart(client):
+    """Regression test for a real bug hit in production: a project whose
+    every file had already finished (COMPLETED/FAILED) but whose own
+    status was still ANALYZING/CANCELLING, because project_review_worker.py's
+    in-process queue has no persistence across a restart (see its own
+    module docstring) -- a process killed at exactly the wrong moment
+    abandons such a project forever, with no worker ever left to call
+    finalize_project() for it. recover_stuck_projects() (called once at
+    startup in main.py) re-publishes it to the same queue/worker path a
+    fresh submission uses -- safe because that dispatch only ever
+    processes files still QUEUED, so a project with nothing left to do
+    just gets immediately finalized, with no file re-analyzed."""
+    from app.schemas.project_review import ProjectFile, ProjectProfile, ProjectReview
+    from app.services import firestore_service, project_review_service
+
+    user_id = "recovery_test_user"
+    project_id = "recovery_test_project"
+
+    async def seed_abandoned_project():
+        project = ProjectReview(
+            id=project_id, userId=user_id, status="ANALYZING",
+            originalFilename="t.zip", profile=ProjectProfile(),
+            fileCount=1, excludedCount=0, filesAnalyzed=1,
+            totalLines=1, totalSize=1, createdAt=firestore_service.now(),
+        )
+        await firestore_service.create_project_review(project)
+        pf = ProjectFile(
+            id="recovery_test_file", path="main.py", language="python", tier="source",
+            status="COMPLETED", score=8.0,
+        )
+        await firestore_service.create_project_file(user_id, project_id, pf)
+
+    client.portal.call(seed_abandoned_project)
+    recovered = client.portal.call(project_review_service.recover_stuck_projects)
+    assert recovered >= 1
+
+    result = _wait_for_project_completion(client, project_id, {"Authorization": f"Bearer {user_id}"})
+    assert result["status"] == "COMPLETED"
+    assert result["overallScore"] == 8.0
+    # The one file was never re-touched -- still exactly what was seeded.
+    assert result["files"][0]["status"] == "COMPLETED"
+
+
 def test_list_projects_returns_summary_without_files(client):
     manifest = _upload_manifest(client, HEADERS_A, {"src/main.py": CLEAN_FILE}).json()
     client.post(
