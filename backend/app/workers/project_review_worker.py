@@ -70,11 +70,14 @@ async def _run_project(user_id: str, project_id: str) -> None:
         # instead of tens of seconds, so a user can realistically cancel
         # before the worker even starts). Unconditionally overwriting
         # status to "ANALYZING" below would silently clobber this and make
-        # the cancel a no-op, which is exactly what was observed. Every
-        # file here is still QUEUED (nothing has run yet), so this is a
-        # clean full cancellation -- skip everything without ever claiming
-        # ANALYZING.
+        # the cancel a no-op, which is exactly what was observed. Only
+        # QUEUED files are skipped here -- on a retry (retry_project_files/
+        # retry_entire_project), files from an earlier run may already be
+        # COMPLETED/FAILED, and cancelling the retry must never clobber
+        # those back to SKIPPED.
         for pf in project.files:
+            if pf.status != "QUEUED":
+                continue
             await project_review_service.mark_project_file_skipped(user_id, project_id, pf.id)
             await project_review_service.increment_files_analyzed(user_id, project_id)
         await project_review_service.finalize_project(user_id, project_id, cancelled=True)
@@ -116,7 +119,14 @@ async def _run_project(user_id: str, project_id: str) -> None:
             await project_review_service.increment_files_analyzed(user_id, project_id)
             return False
 
-    tasks = [asyncio.create_task(_run_one(pf.id)) for pf in project.files]
+    # Only ever process QUEUED files -- makes this loop idempotent/resumable
+    # by construction: a retry (retry_project_files/retry_entire_project in
+    # project_review_service.py) just resets the target files back to
+    # QUEUED and re-enqueues the same project_id, reusing this exact same
+    # path rather than needing a separate "retry worker." An already-
+    # COMPLETED file is never touched again just because it happens to
+    # share a run with files that are being retried.
+    tasks = [asyncio.create_task(_run_one(pf.id)) for pf in project.files if pf.status == "QUEUED"]
     results = await asyncio.gather(*tasks) if tasks else []
     cancelled = any(results)
 

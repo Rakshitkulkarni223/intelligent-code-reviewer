@@ -132,7 +132,7 @@ export interface ValidationResult {
 // Mirrors backend/app/schemas/project_review.py -- keep in sync.
 // docs/PROJECT_ZIP_REVIEW_PLAN.md
 
-export type ProjectReviewStatus = 'QUEUED' | 'ANALYZING' | 'CANCELLING' | 'CANCELLED' | 'COMPLETED' | 'FAILED';
+export type ProjectReviewStatus = 'QUEUED' | 'ANALYZING' | 'CANCELLING' | 'CANCELLED' | 'COMPLETED' | 'PARTIAL' | 'FAILED';
 export type ProjectFileStatus = 'QUEUED' | 'ANALYZING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
 export type ReviewMode = 'standard' | 'comprehensive';
 export type PriorityTier = 'auth' | 'api' | 'data' | 'source' | 'util' | 'config' | 'test' | 'docs';

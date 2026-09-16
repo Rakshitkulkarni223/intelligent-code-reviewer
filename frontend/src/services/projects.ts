@@ -78,3 +78,20 @@ export function cancelProjectReview(projectId: string) {
 export function deleteProjectReview(projectId: string) {
   return jsonFetch<void>(`/api/projects/${projectId}`, { method: 'DELETE' });
 }
+
+// fileIds omitted -- retry every currently-FAILED file. A specific list --
+// retry just those (also covers retrying a single file).
+export function retryProjectFiles(projectId: string, fileIds?: string[]) {
+  return jsonFetch<ProjectReview>(`/api/projects/${projectId}/retry-files`, {
+    method: 'POST',
+    body: JSON.stringify({ fileIds: fileIds ?? null }),
+  });
+}
+
+export function retryProject(projectId: string) {
+  return jsonFetch<ProjectReview>(`/api/projects/${projectId}/retry`, { method: 'POST' });
+}
+
+export function retryProjectSummary(projectId: string) {
+  return jsonFetch<ProjectReview>(`/api/projects/${projectId}/retry-summary`, { method: 'POST' });
+}

@@ -5,12 +5,12 @@ import { TrashIcon } from './icons';
 
 const STATUS_LABELS: Record<ProjectReviewSummary['status'], string> = {
   QUEUED: 'Queued', ANALYZING: 'Analyzing', CANCELLING: 'Cancelling',
-  CANCELLED: 'Cancelled', COMPLETED: 'Completed', FAILED: 'Failed',
+  CANCELLED: 'Cancelled', COMPLETED: 'Completed', PARTIAL: 'Partially completed', FAILED: 'Failed',
 };
 
 const STATUS_COLORS: Record<ProjectReviewSummary['status'], string> = {
   QUEUED: 'var(--text-muted)', ANALYZING: 'var(--accent)', CANCELLING: 'var(--text-muted)',
-  CANCELLED: 'var(--text-muted)', COMPLETED: 'var(--success)', FAILED: 'var(--danger)',
+  CANCELLED: 'var(--text-muted)', COMPLETED: 'var(--success)', PARTIAL: 'var(--warning)', FAILED: 'var(--danger)',
 };
 
 // Tinted background pairing with STATUS_COLORS above, mirroring
@@ -20,7 +20,7 @@ const STATUS_COLORS: Record<ProjectReviewSummary['status'], string> = {
 // pill had no visible fill and just looked like floating text.
 const STATUS_BACKGROUNDS: Record<ProjectReviewSummary['status'], string> = {
   QUEUED: 'var(--neutral-bg)', ANALYZING: 'var(--accent-muted)', CANCELLING: 'var(--neutral-bg)',
-  CANCELLED: 'var(--neutral-bg)', COMPLETED: 'var(--success-bg)', FAILED: 'var(--danger-bg)',
+  CANCELLED: 'var(--neutral-bg)', COMPLETED: 'var(--success-bg)', PARTIAL: 'var(--warning-bg)', FAILED: 'var(--danger-bg)',
 };
 
 const inProgress = new Set(['QUEUED', 'ANALYZING', 'CANCELLING']);
@@ -59,7 +59,7 @@ export default function ProjectReviewCard({
 
       <div className="review-card-footer">
         <div className="review-card-metrics">
-          {project.status === 'COMPLETED' && project.overallScore != null && (
+          {(project.status === 'COMPLETED' || project.status === 'PARTIAL') && project.overallScore != null && (
             <span className="review-card-metric"><strong>{project.overallScore.toFixed(1)}</strong>/10</span>
           )}
           <span className="review-card-metric">{project.filesAnalyzed}/{project.fileCount} analyzed</span>

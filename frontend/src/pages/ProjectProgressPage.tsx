@@ -35,7 +35,7 @@ export default function ProjectProgressPage() {
         const p = await getProjectReview(projectId);
         if (cancelled) return;
         setProject(p);
-        if (p.status === 'COMPLETED' || p.status === 'FAILED' || p.status === 'CANCELLED') {
+        if (p.status === 'COMPLETED' || p.status === 'PARTIAL' || p.status === 'FAILED' || p.status === 'CANCELLED') {
           // History's project list shows status/score for this same project
           // -- without this it'd keep showing "ANALYZING" until its own
           // staleTime lapses, even though this page already knows better.

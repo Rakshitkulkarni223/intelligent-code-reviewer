@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { getProjectReview } from '../services/projects';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { getProjectReview, retryProject, retryProjectFiles, retryProjectSummary } from '../services/projects';
 import type { ProjectFile, ProjectReview, ScoreDimensions } from '../types';
+import { queryKeys } from '../lib/queryKeys';
+import { useToast } from '../hooks/useToast';
 import ScoreCard from '../components/ScoreCard';
 import ProjectScoreTable from '../components/ProjectScoreTable';
 import ErrorState from '../components/ErrorState';
@@ -40,6 +43,10 @@ export default function ProjectResultPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<ProjectReview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { show } = useToast();
 
   useEffect(() => {
     if (!projectId) return;
@@ -62,6 +69,53 @@ export default function ProjectResultPage() {
 
     return () => { cancelled = true; clearTimeout(timer); };
   }, [projectId]);
+
+  // retry-files/retry both put the project back into QUEUED/ANALYZING and
+  // do the actual re-analysis asynchronously in the worker -- routing
+  // through the progress page reuses its existing poll-until-terminal-then-
+  // redirect-back-here logic rather than duplicating it here.
+  const handleRetryFiles = async (fileIds?: string[]) => {
+    if (!projectId || retrying) return;
+    setRetrying(true);
+    try {
+      await retryProjectFiles(projectId, fileIds);
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
+      navigate(`/projects/${projectId}/progress`);
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Failed to retry', 'error');
+      setRetrying(false);
+    }
+  };
+
+  const handleRetryProject = async () => {
+    if (!projectId || retrying) return;
+    setRetrying(true);
+    try {
+      await retryProject(projectId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
+      navigate(`/projects/${projectId}/progress`);
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Failed to retry', 'error');
+      setRetrying(false);
+    }
+  };
+
+  // Unlike the two above, this never touches file status or the project's
+  // QUEUED/ANALYZING lifecycle -- it's a single synchronous call that
+  // returns the updated project directly, so there's nothing to poll for.
+  const handleRetrySummary = async () => {
+    if (!projectId || retrying) return;
+    setRetrying(true);
+    try {
+      const updated = await retryProjectSummary(projectId);
+      setProject(updated);
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
+    } catch (e) {
+      show(e instanceof Error ? e.message : 'Failed to regenerate the summary', 'error');
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   if (error) return <ErrorState message={error} />;
   if (!project) {
@@ -102,8 +156,42 @@ export default function ProjectResultPage() {
       )}
 
       {project.status === 'FAILED' && (
-        <div className="confidence-picker" style={{ marginBottom: 20 }} role="alert">
-          {project.error ?? 'Every file failed analysis.'}
+        <div className="confidence-picker" style={{ marginBottom: 20, justifyContent: 'space-between' }} role="alert">
+          <span>{project.error ?? "We couldn't analyze the project because of a temporary processing or network issue."}</span>
+          <button className="btn" onClick={handleRetryProject} disabled={retrying}>
+            {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Project'}
+          </button>
+        </div>
+      )}
+
+      {project.status === 'PARTIAL' && (
+        <div className="info-banner" role="status" style={{ marginBottom: 20 }}>
+          <div className="info-banner-main">
+            <p className="info-banner-text">
+              Project Review · Partially Completed — {project.files.filter((f) => f.status === 'COMPLETED').length} of{' '}
+              {project.fileCount} files analyzed successfully, {project.files.filter((f) => f.status === 'FAILED').length} failed.
+              Score calculated from the files that succeeded.
+            </p>
+          </div>
+          <div className="info-banner-actions">
+            <button className="btn btn-primary" onClick={() => handleRetryFiles()} disabled={retrying}>
+              {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Failed Files'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(project.status === 'COMPLETED' || project.status === 'PARTIAL') && project.summary == null
+        && project.files.some((f) => f.status === 'COMPLETED') && (
+        <div className="info-banner" role="status" style={{ marginBottom: 20 }}>
+          <div className="info-banner-main">
+            <p className="info-banner-text">File analysis completed, but the final project report could not be generated.</p>
+          </div>
+          <div className="info-banner-actions">
+            <button className="btn" onClick={handleRetrySummary} disabled={retrying}>
+              {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Final Report'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -143,7 +231,7 @@ export default function ProjectResultPage() {
         </div>
       )}
 
-      <ProjectScoreTable projectId={project.id} files={project.files} />
+      <ProjectScoreTable projectId={project.id} files={project.files} onRetryFile={(fileId) => handleRetryFiles([fileId])} />
     </div>
   );
 }

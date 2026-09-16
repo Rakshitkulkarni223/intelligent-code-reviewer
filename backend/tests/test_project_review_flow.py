@@ -42,7 +42,7 @@ def _wait_for_project_completion(client: TestClient, project_id: str, headers: d
     while time.time() < deadline:
         r = client.get(f"/api/projects/{project_id}", headers=headers)
         body = r.json()
-        if body["status"] in ("COMPLETED", "FAILED", "CANCELLED"):
+        if body["status"] in ("COMPLETED", "PARTIAL", "FAILED", "CANCELLED"):
             return body
         time.sleep(0.1)
     raise TimeoutError("project did not reach a terminal state in time")
@@ -142,6 +142,142 @@ def test_project_review_routes_pro_model_only_to_auth_and_api_tiers(client, monk
     assert recorded_models["API_TIER\n" + CLEAN_FILE] == settings.project_review_pro_model
     assert recorded_models["SOURCE_TIER\n" + CLEAN_FILE] == settings.project_review_flash_model
     assert recorded_models["UTIL_TIER\n" + CLEAN_FILE] == settings.project_review_flash_model
+
+
+# ---- Retry (post-v1 addition) ----
+
+
+def _make_failing_analyze(fail_paths_by_content: dict[str, list[bool]], original):
+    """Builds a fake gemini_service.analyze_code that raises for any code
+    string whose next scheduled outcome (popped from fail_paths_by_content)
+    is True, and otherwise delegates to the real mock analyzer. A plain
+    RuntimeError is non-transient per is_transient_failure, so the file
+    fails on its very first attempt with no in-run retry backoff delay."""
+    async def fake_analyze(code, language, historical_rules=None, model=None):
+        schedule = fail_paths_by_content.get(code)
+        if schedule and schedule.pop(0):
+            raise RuntimeError("simulated Gemini failure")
+        return await original(code, language, historical_rules, model)
+    return fake_analyze
+
+
+def test_partial_status_and_retry_failed_files(client, monkeypatch):
+    from app.services import gemini_service as gs
+
+    original_analyze = gs.analyze_code
+    good_file = "GOOD\n" + CLEAN_FILE
+    bad_file = "BAD\n" + CLEAN_FILE
+    # Fails once (the initial run), then succeeds on retry.
+    schedule = {bad_file: [True]}
+    monkeypatch.setattr(gs, "analyze_code", _make_failing_analyze(schedule, original_analyze))
+
+    manifest = _upload_manifest(client, HEADERS_A, {"src/good.py": good_file, "src/bad.py": bad_file}).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": ["src/good.py", "src/bad.py"], "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    result = _wait_for_project_completion(client, project_id, HEADERS_A)
+
+    assert result["status"] == "PARTIAL"
+    statuses = {f["path"]: f["status"] for f in result["files"]}
+    assert statuses == {"src/good.py": "COMPLETED", "src/bad.py": "FAILED"}
+    assert result["filesAnalyzed"] == 2
+    # The score must never be dragged down by the failed file -- it's
+    # excluded entirely, not counted as a 0.
+    assert result["overallScore"] == next(f["score"] for f in result["files"] if f["path"] == "src/good.py")
+
+    # Retrying while nothing has failed yet (a fresh run's fail schedule is
+    # now empty, so the next attempt succeeds) should bring the whole
+    # project to COMPLETED without ever re-touching src/good.py.
+    good_file_id = next(f["id"] for f in result["files"] if f["path"] == "src/good.py")
+    retry = client.post(f"/api/projects/{project_id}/retry-files", json={}, headers=HEADERS_A)
+    assert retry.status_code == 200
+    final = _wait_for_project_completion(client, project_id, HEADERS_A)
+    assert final["status"] == "COMPLETED"
+    statuses = {f["path"]: f["status"] for f in final["files"]}
+    assert statuses == {"src/good.py": "COMPLETED", "src/bad.py": "COMPLETED"}
+    # good.py's own file id is unchanged -- proof it was never re-created/
+    # re-analyzed, only bad.py was.
+    assert next(f["id"] for f in final["files"] if f["path"] == "src/good.py") == good_file_id
+    assert final["filesAnalyzed"] == 2
+
+
+def test_retry_files_rejects_when_nothing_failed(client):
+    manifest = _upload_manifest(client, HEADERS_A, {"src/main.py": CLEAN_FILE}).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": ["src/main.py"], "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    _wait_for_project_completion(client, project_id, HEADERS_A)
+
+    r = client.post(f"/api/projects/{project_id}/retry-files", json={}, headers=HEADERS_A)
+    assert r.status_code == 400
+
+
+def test_retry_entire_project_when_every_file_failed(client, monkeypatch):
+    from app.services import gemini_service as gs
+
+    original_analyze = gs.analyze_code
+    file_a = "PROJECT_RETRY_A\n" + CLEAN_FILE
+    file_b = "PROJECT_RETRY_B\n" + CLEAN_FILE
+    schedule = {file_a: [True], file_b: [True]}
+    monkeypatch.setattr(gs, "analyze_code", _make_failing_analyze(schedule, original_analyze))
+
+    manifest = _upload_manifest(client, HEADERS_A, {"src/a.py": file_a, "src/b.py": file_b}).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": ["src/a.py", "src/b.py"], "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    result = _wait_for_project_completion(client, project_id, HEADERS_A)
+    assert result["status"] == "FAILED"
+
+    retry = client.post(f"/api/projects/{project_id}/retry", headers=HEADERS_A)
+    assert retry.status_code == 200
+    final = _wait_for_project_completion(client, project_id, HEADERS_A)
+    assert final["status"] == "COMPLETED"
+    assert {f["status"] for f in final["files"]} == {"COMPLETED"}
+
+
+def test_retry_project_summary_regenerates_without_reanalyzing_files(client, monkeypatch):
+    from app.services import gemini_service as gs
+
+    call_count = {"n": 0}
+    original_summarize = gs.summarize_project
+
+    async def flaky_summarize(profile, file_summaries, model=None):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("simulated summary failure")
+        return await original_summarize(profile, file_summaries, model)
+
+    monkeypatch.setattr(gs, "summarize_project", flaky_summarize)
+
+    manifest = _upload_manifest(client, HEADERS_A, {"src/main.py": CLEAN_FILE}).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": ["src/main.py"], "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    result = _wait_for_project_completion(client, project_id, HEADERS_A)
+    assert result["status"] == "COMPLETED"
+    assert result["summary"] is None  # the summary pass failed, but that never blocks COMPLETED
+    file_id = result["files"][0]["id"]
+
+    retry = client.post(f"/api/projects/{project_id}/retry-summary", headers=HEADERS_A)
+    assert retry.status_code == 200
+    body = retry.json()
+    assert body["summary"] is not None
+    # The file itself was never re-touched -- same id, still COMPLETED,
+    # proof retry-summary only re-ran the aggregation/summary pass.
+    assert body["files"][0]["id"] == file_id
+    assert body["files"][0]["status"] == "COMPLETED"
 
 
 def test_project_file_drilldown_returns_code_and_result(client):

@@ -49,6 +49,17 @@ class UploadNotFoundError(Exception):
     """The upload token is missing, expired, or belongs to another user."""
 
 
+class ProjectNotRetryableError(Exception):
+    """The project is QUEUED/ANALYZING/CANCELLING -- a retry while a run is
+    already in flight would race with it (two workers processing the same
+    project_id concurrently). Maps to a 409."""
+
+
+class NoFilesToRetryError(Exception):
+    """Nothing matched what the caller asked to retry (e.g. "retry failed
+    files" when nothing is actually FAILED). Maps to a 400."""
+
+
 class StagedFailure(Exception):
     """Same shape as review_service.StagedFailure -- wraps an exception with
     whether it's transient (worth retrying) and the FailureReason it implies."""
@@ -360,6 +371,109 @@ async def cancel_project_review(user_id: str, project_id: str) -> ProjectReview 
     return await firestore_service.update_project_review(user_id, project_id, status="CANCELLING")
 
 
+# --- Retry (post-v1 addition): re-review failed files/projects/summaries
+# without requiring re-upload. project_review_worker.py's dispatch only
+# ever processes QUEUED files (see its own comment), which is what makes
+# every retry below safe to route through the exact same queue+worker path
+# a fresh submission uses -- an already-COMPLETED file is never re-touched
+# just because it shares a run with files being retried.
+
+_RETRYABLE_PROJECT_STATUSES = frozenset({"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"})
+
+
+async def retry_project_files(user_id: str, project_id: str, file_ids: list[str] | None) -> ProjectReview | None:
+    """Retries specific files (file_ids given -- covers both "retry this
+    one file" and "retry this hand-picked set") or every currently-FAILED
+    file (file_ids is None -- "retry failed files"). Reuses each target
+    file's existing codeStorageUri, so nothing is re-uploaded."""
+    project = await firestore_service.get_project_review(user_id, project_id, include_files=True)
+    if not project:
+        return None
+    if project.status not in _RETRYABLE_PROJECT_STATUSES:
+        raise ProjectNotRetryableError(f"Cannot retry while project is {project.status}")
+
+    by_id = {f.id: f for f in project.files}
+    if file_ids is None:
+        targets = [f for f in project.files if f.status == "FAILED"]
+    else:
+        targets = [by_id[fid] for fid in file_ids if fid in by_id and by_id[fid].status == "FAILED"]
+    if not targets:
+        raise NoFilesToRetryError("No failed files to retry")
+
+    for f in targets:
+        await firestore_service.update_project_file(
+            user_id, project_id, f.id, status="QUEUED", error=None, failureReason=None, attempts=f.attempts + 1,
+        )
+    # Each target file already counted toward filesAnalyzed (a "reached a
+    # terminal state" counter, not a success counter -- see increment_
+    # files_analyzed's call sites) when it first failed; undo that so the
+    # progress bar reflects it being back in flight, then increment_files_
+    # analyzed counts it again once it completes.
+    await firestore_service.update_project_review(
+        user_id, project_id, status="QUEUED", filesAnalyzed=max(0, project.filesAnalyzed - len(targets)),
+    )
+    await project_queue_service.publish(user_id, project_id)
+    logger.info("retrying %s failed file(s) projectId=%s", len(targets), project_id)
+    return await firestore_service.get_project_review(user_id, project_id, include_files=True)
+
+
+async def retry_entire_project(user_id: str, project_id: str) -> ProjectReview | None:
+    """Resets every file back to QUEUED and re-enqueues -- for the case
+    every file failed and there's nothing worth salvaging file-by-file.
+    Still never requires re-uploading: each file reuses its existing
+    codeStorageUri where one was already persisted (the common case --
+    see analyze_project_file, which persists it before the first Gemini
+    call, so it's normally set even for a file that later failed). The
+    rare file that never got that far falls back to the pending-text
+    cache, which may itself be long gone by now (cleaned up once the
+    original run finished, see cleanup_pending_upload) -- that one file
+    will fail again with a clear "content no longer available" reason
+    rather than silently losing its content."""
+    project = await firestore_service.get_project_review(user_id, project_id, include_files=True)
+    if not project:
+        return None
+    if project.status not in _RETRYABLE_PROJECT_STATUSES:
+        raise ProjectNotRetryableError(f"Cannot retry while project is {project.status}")
+    if not project.files:
+        raise NoFilesToRetryError("Project has no files to retry")
+
+    for f in project.files:
+        await firestore_service.update_project_file(
+            user_id, project_id, f.id, status="QUEUED", error=None, failureReason=None,
+            score=None, result=None, attempts=f.attempts + 1,
+        )
+    await firestore_service.update_project_review(
+        user_id, project_id, status="QUEUED", filesAnalyzed=0,
+        overallScore=None, worstFiles=[], mostCommonIssueCategory=None,
+        summary=None, recommendations=[], completedAt=None, error=None, failureReason=None,
+    )
+    await project_queue_service.publish(user_id, project_id)
+    logger.info("retrying entire project projectId=%s fileCount=%s", project_id, len(project.files))
+    return await firestore_service.get_project_review(user_id, project_id, include_files=True)
+
+
+async def retry_project_summary(user_id: str, project_id: str) -> ProjectReview | None:
+    """Re-runs just the aggregation + cross-file summary pass (§4.7) --
+    never re-analyzes any file. For the case every file's own analysis
+    succeeded but the summary call itself failed (or the user just wants
+    a fresh one)."""
+    project = await firestore_service.get_project_review(user_id, project_id, include_files=True)
+    if not project:
+        return None
+    if project.status not in ("COMPLETED", "PARTIAL"):
+        raise ProjectNotRetryableError(f"Cannot regenerate the summary while project is {project.status}")
+
+    overall_score, worst_files, most_common = _aggregate(project.files)
+    summary, recommendations = await _run_summary_pass(project, project.files)
+    await firestore_service.update_project_review(
+        user_id, project_id,
+        overallScore=overall_score, worstFiles=worst_files, mostCommonIssueCategory=most_common,
+        summary=summary, recommendations=recommendations,
+    )
+    logger.info("regenerated project summary projectId=%s", project_id)
+    return await firestore_service.get_project_review(user_id, project_id, include_files=True)
+
+
 # --- Per-file analysis, called once per attempt by project_review_worker.py ---
 
 
@@ -529,10 +643,20 @@ async def finalize_project(user_id: str, project_id: str, cancelled: bool) -> No
         )
         return
 
+    # PARTIAL vs COMPLETED: some files succeeded either way (the branch
+    # above already handled "none did"), but a mix of COMPLETED and FAILED
+    # is a materially different outcome from a clean run -- the score and
+    # summary below are still computed the same way (already only ever
+    # drawn from COMPLETED files, see _aggregate), just labeled honestly so
+    # the UI can show "42 of 48 files analyzed" instead of implying a full,
+    # clean pass.
+    any_failed = any(f.status == "FAILED" for f in files)
+    status = "PARTIAL" if any_failed else "COMPLETED"
+
     summary, recommendations = await _run_summary_pass(project, files)
     await firestore_service.update_project_review(
-        user_id, project_id, status="COMPLETED", completedAt=firestore_service.now(),
+        user_id, project_id, status=status, completedAt=firestore_service.now(),
         overallScore=overall_score, worstFiles=worst_files, mostCommonIssueCategory=most_common,
         summary=summary, recommendations=recommendations,
     )
-    logger.info("project review completed projectId=%s overallScore=%s", project_id, overall_score)
+    logger.info("project review %s projectId=%s overallScore=%s", status.lower(), project_id, overall_score)

@@ -477,6 +477,52 @@ actually restricts the slow model to only the tiers that need it.
   or the file being over the hard token/size ceiling — since retrying those wastes a call on
   something guaranteed to fail identically again.
 
+### 4.8.1 Manual retry (added post-v1, for failures that outlast the automatic policy above)
+
+§4.8's automatic retry only covers one in-flight run -- it does nothing once a project has already
+reached a terminal state with some files FAILED (e.g. Gemini quota exhausted for an extended
+period, well past the couple of backoff attempts above). Three user-triggered actions cover that:
+
+- `POST /api/projects/{id}/retry-files` (body `{fileIds: string[] | null}`) -- retries a specific
+  set of currently-FAILED files, or every FAILED file if `fileIds` is omitted. Covers both "retry
+  one file" and "retry failed files."
+- `POST /api/projects/{id}/retry` -- resets **every** file back to `QUEUED` and re-enqueues. For
+  the case where nothing is worth salvaging file-by-file (status is `FAILED`, meaning every file
+  failed).
+- `POST /api/projects/{id}/retry-summary` -- re-runs only the §4.7 aggregation + summary pass,
+  touching no file. For the case every file's own analysis succeeded but the summary call itself
+  failed (it degrades to `summary: null` per §4.7, which never blocks `COMPLETED`/`PARTIAL` --
+  this is what lets the project reach a retryable terminal state in the first place).
+
+All three reuse the exact same queue/worker path a fresh submission uses, rather than needing a
+separate "retry worker": `project_review_worker.py`'s per-project dispatch loop was changed to only
+ever process files whose status is `QUEUED` (previously: unconditionally every file in the
+project). A retry action's whole job is therefore just "reset the right files back to `QUEUED`,
+then re-publish the same `project_id`" -- an already-`COMPLETED` file is never re-touched just
+because it happens to share a run with files being retried, and no file is ever re-uploaded: each
+file's `codeStorageUri` (persisted the first time its own `put()` succeeds, before that file's
+first Gemini call -- see §7) is reused as-is. The one rare edge case -- a file that failed before
+its own `put()` ever succeeded, on a project whose pending-upload cache (§5.3) has since expired --
+surfaces as a clear "content no longer available" failure on retry rather than silently losing
+that file's content; building persistent-upfront storage to close this gap entirely would
+reintroduce the exact synchronous-upload responsiveness regression `_PendingUpload` was built to
+fix, for a genuinely rare case.
+
+**New project-level status**: `PARTIAL` (some files `FAILED`, at least one `COMPLETED`), distinct
+from `COMPLETED` (none failed) and `FAILED` (none succeeded). Every metric derived from files
+(`overallScore`, `worstFiles`, `mostCommonIssueCategory`) was already computed only from
+`COMPLETED` files (§4.5's `_aggregate`) even before this -- a `FAILED` file was never counted as a
+0, so `PARTIAL` only changes the status label shown, not how the score itself is computed.
+
+**Deliberately not built**: a `FileReviewAttempt`/`codeHash`/`projectVersion` ledger for retry
+idempotency. That machinery solves "did the source change between attempts," which never applies
+here -- a retry always re-reads the exact same stored `codeStorageUri`, never a new upload, so
+there's no version to reconcile. The existing (previously unused) `ProjectFile.attempts` counter is
+incremented on each manual retry instead, for basic visibility, rather than a full attempt-history
+ledger. Likewise, `FailureReason` keeps its existing categories (`GEMINI_ERROR`,
+`REVIEW_SERVICE_ERROR`, etc.) rather than fragmenting into network/timeout/rate-limit/quota-specific
+values -- worth revisiting only if the UI ever needs to show different guidance per exact cause.
+
   **Cross-check correction:** this is genuinely new logic, not a light extension of an existing
   shape. `review_worker.py` today retries *every* failure identically — a flat 2s sleep, republish
   to Pub/Sub, no transient/permanent distinction at all — driven by message redelivery in a single

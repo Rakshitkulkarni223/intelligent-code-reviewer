@@ -150,7 +150,10 @@ export default function DashboardPage() {
   // project-file scores never do -- those stay inside that project's own
   // detail view.
   const completedReviews = reviews.filter((r) => r.status === 'COMPLETED' && r.score != null && !r.excludeFromMetrics);
-  const completedProjects = projects.filter((p) => p.status === 'COMPLETED' && p.overallScore != null);
+  // PARTIAL (some files failed, but not all) still has a real overallScore
+  // -- computed the same way COMPLETED's is, only ever from the files that
+  // actually succeeded -- so it counts toward these metrics the same way.
+  const completedProjects = projects.filter((p) => (p.status === 'COMPLETED' || p.status === 'PARTIAL') && p.overallScore != null);
 
   const combinedScored: ScoredItem[] = [
     ...completedReviews.map((r): ScoredItem => ({ score: r.score!, createdAt: r.createdAt, kind: 'review', label: r.language })),

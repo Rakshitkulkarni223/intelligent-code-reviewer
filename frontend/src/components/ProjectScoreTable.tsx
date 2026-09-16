@@ -16,7 +16,15 @@ const FILE_STATUS_BACKGROUNDS: Record<ProjectFileStatus, string> = {
   FAILED: 'var(--danger-bg)', SKIPPED: 'var(--neutral-bg)',
 };
 
-export default function ProjectScoreTable({ projectId, files }: { projectId: string; files: ProjectFile[] }) {
+export default function ProjectScoreTable({
+  projectId,
+  files,
+  onRetryFile,
+}: {
+  projectId: string;
+  files: ProjectFile[];
+  onRetryFile?: (fileId: string) => void;
+}) {
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('score');
   const [sortAsc, setSortAsc] = useState(true);
@@ -65,9 +73,14 @@ export default function ProjectScoreTable({ projectId, files }: { projectId: str
       </div>
       <div style={{ maxHeight: 480, overflowY: 'auto' }}>
         {rows.map((f) => (
-          <button
+          <div
             key={f.id}
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(`/projects/${projectId}/files/${f.id}`)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/projects/${projectId}/files/${f.id}`); }
+            }}
             style={{
               display: 'flex', width: '100%', alignItems: 'center', gap: 10, padding: '10px 18px',
               borderBottom: '1px solid var(--border)', background: 'none', border: 'none', borderTop: 'none',
@@ -87,8 +100,18 @@ export default function ProjectScoreTable({ projectId, files }: { projectId: str
             <span style={{ width: 90, textAlign: 'right', color: 'var(--text-muted)', flexShrink: 0 }}>
               {f.result ? `${f.result.issues.length} issue${f.result.issues.length === 1 ? '' : 's'}` : ''}
             </span>
-            <span style={{ width: 24, textAlign: 'right', color: 'var(--text-faint)', flexShrink: 0 }}>→</span>
-          </button>
+            {f.status === 'FAILED' && onRetryFile ? (
+              <button
+                className="btn btn-ghost"
+                style={{ padding: '3px 9px', fontSize: 12 }}
+                onClick={(e) => { e.stopPropagation(); onRetryFile(f.id); }}
+              >
+                Retry
+              </button>
+            ) : (
+              <span style={{ width: 24, textAlign: 'right', color: 'var(--text-faint)', flexShrink: 0 }}>→</span>
+            )}
+          </div>
         ))}
         {rows.length === 0 && (
           <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-faint)', fontSize: 13 }}>No files match your search.</div>

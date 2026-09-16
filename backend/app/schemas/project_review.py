@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 from app.schemas.gemini_response import GeminiAnalysis
 from app.schemas.review import FailureReason
 
-ProjectReviewStatus = Literal["QUEUED", "ANALYZING", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"]
+ProjectReviewStatus = Literal["QUEUED", "ANALYZING", "CANCELLING", "CANCELLED", "COMPLETED", "PARTIAL", "FAILED"]
 ProjectFileStatus = Literal["QUEUED", "ANALYZING", "COMPLETED", "FAILED", "SKIPPED"]
 ReviewMode = Literal["standard", "comprehensive"]
 EstimatedComplexity = Literal["small", "medium", "large"]

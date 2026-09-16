@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from pydantic import BaseModel
 
 from app.config import settings
 from app.schemas.project_review import CreateProjectRequest, CreateProjectResponse, ProjectManifest, ProjectReview
@@ -81,6 +82,50 @@ async def delete_project(project_id: str, user_id: str = Depends(get_current_use
 @router.post("/{project_id}/cancel", response_model=ProjectReview)
 async def cancel_project(project_id: str, user_id: str = Depends(get_current_user_id)):
     project = await project_review_service.cancel_project_review(user_id, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+class RetryFilesRequest(BaseModel):
+    # Omitted/null -- retry every currently-FAILED file ("Retry Failed
+    # Files"). A specific list -- retry just those (covers "Retry File"
+    # for a single one too).
+    fileIds: list[str] | None = None
+
+
+@router.post("/{project_id}/retry-files", response_model=ProjectReview)
+async def retry_project_files(project_id: str, body: RetryFilesRequest, user_id: str = Depends(get_current_user_id)):
+    try:
+        project = await project_review_service.retry_project_files(user_id, project_id, body.fileIds)
+    except project_review_service.ProjectNotRetryableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except project_review_service.NoFilesToRetryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.post("/{project_id}/retry", response_model=ProjectReview)
+async def retry_project(project_id: str, user_id: str = Depends(get_current_user_id)):
+    try:
+        project = await project_review_service.retry_entire_project(user_id, project_id)
+    except project_review_service.ProjectNotRetryableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except project_review_service.NoFilesToRetryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@router.post("/{project_id}/retry-summary", response_model=ProjectReview)
+async def retry_project_summary(project_id: str, user_id: str = Depends(get_current_user_id)):
+    try:
+        project = await project_review_service.retry_project_summary(user_id, project_id)
+    except project_review_service.ProjectNotRetryableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     return project
