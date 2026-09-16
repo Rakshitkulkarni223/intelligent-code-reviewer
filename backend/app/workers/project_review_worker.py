@@ -25,13 +25,21 @@ logger = logging.getLogger("project_review_worker")
 RETRY_BACKOFF_SCHEDULE = [2, 5]  # seconds, indexed by attempt number (§4.8)
 
 
-async def _analyze_one_file_with_retry(user_id: str, project_id: str, file_id: str) -> None:
+async def _is_cancelling(user_id: str, project_id: str) -> bool:
+    current = await firestore_service.get_project_review(user_id, project_id, include_files=False)
+    return bool(current and current.status == "CANCELLING")
+
+
+async def _analyze_one_file_with_retry(user_id: str, project_id: str, file_id: str) -> bool:
+    """Returns True if this file was skipped because cancellation arrived
+    between retry attempts, mirroring _run_one's own return convention so
+    _run_project's cancelled-detection picks this up the same way."""
     attempt = 0
     while True:
         attempt += 1
         try:
             await project_review_service.analyze_project_file(user_id, project_id, file_id)
-            return
+            return False
         except project_review_service.StagedFailure as exc:
             transient = exc.transient
             reason = exc.reason
@@ -51,10 +59,25 @@ async def _analyze_one_file_with_retry(user_id: str, project_id: str, file_id: s
                 user_id, project_id, file_id, reason,
                 "Analysis failed after multiple attempts" if transient else str(origin),
             )
-            return
+            return False
+
+        # Checked both here and after the backoff sleep below -- without
+        # this, a file that kept failing transiently ran its *entire*
+        # retry budget (each attempt separated by a real backoff sleep)
+        # with no way to interrupt it. Cancelling a project with several
+        # failing/retrying files in flight at once could look completely
+        # stuck for as long as the slowest one's full retry schedule,
+        # since nothing here ever checked for CANCELLING between attempts.
+        if await _is_cancelling(user_id, project_id):
+            await project_review_service.mark_project_file_skipped(user_id, project_id, file_id)
+            return True
 
         backoff = RETRY_BACKOFF_SCHEDULE[min(attempt - 1, len(RETRY_BACKOFF_SCHEDULE) - 1)]
         await asyncio.sleep(backoff)
+
+        if await _is_cancelling(user_id, project_id):
+            await project_review_service.mark_project_file_skipped(user_id, project_id, file_id)
+            return True
 
 
 async def _run_project(user_id: str, project_id: str) -> None:
@@ -110,14 +133,13 @@ async def _run_project(user_id: str, project_id: str) -> None:
         actually stops new work (§4.8's intent, now actually enforced).
         """
         async with semaphore:
-            current = await firestore_service.get_project_review(user_id, project_id, include_files=False)
-            if current and current.status == "CANCELLING":
+            if await _is_cancelling(user_id, project_id):
                 await project_review_service.mark_project_file_skipped(user_id, project_id, file_id)
                 await project_review_service.increment_files_analyzed(user_id, project_id)
                 return True
-            await _analyze_one_file_with_retry(user_id, project_id, file_id)
+            cancelled = await _analyze_one_file_with_retry(user_id, project_id, file_id)
             await project_review_service.increment_files_analyzed(user_id, project_id)
-            return False
+            return cancelled
 
     # Only ever process QUEUED files -- makes this loop idempotent/resumable
     # by construction: a retry (retry_project_files/retry_entire_project in

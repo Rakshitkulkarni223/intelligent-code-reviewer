@@ -459,6 +459,44 @@ def test_cancel_actually_stops_files_still_waiting_for_a_slot(client, monkeypatc
     assert statuses.count("SKIPPED") + statuses.count("COMPLETED") == 12
 
 
+def test_cancel_interrupts_a_file_stuck_in_retry_backoff(client, monkeypatch):
+    """Regression test for a real bug: a file failing transiently and
+    retrying (project_review_worker.RETRY_BACKOFF_SCHEDULE = [2, 5]) had no
+    cancellation check anywhere between attempts -- cancelling a project
+    with such a file in flight had to wait out that file's *entire* retry
+    schedule (up to 2+5=7s, times however many files were mid-retry at
+    once) before the project could ever reach a terminal state, which could
+    make cancelling look completely stuck. Uses a tight
+    _wait_for_project_completion timeout, well under 7s, so this fails
+    outright (via that helper's own TimeoutError) if the fix regresses."""
+    from app.services import gemini_service as gs
+
+    async def always_times_out(code, language, historical_rules=None, model=None):
+        # TimeoutError is in project_review_service._TRANSIENT_EXCEPTION_NAMES
+        # -- guarantees this file enters the retry loop rather than failing
+        # outright on its first attempt.
+        raise TimeoutError("simulated Gemini timeout")
+
+    monkeypatch.setattr(gs, "analyze_code", always_times_out)
+
+    manifest = _upload_manifest(client, HEADERS_A, {"src/flaky.py": CLEAN_FILE}).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": ["src/flaky.py"], "reviewMode": "standard"},
+        headers=HEADERS_A,
+    ).json()
+    project_id = create["projectId"]
+
+    # Cancel immediately -- the file should be on (or just about to enter)
+    # its first attempt, well before either backoff sleep even starts.
+    cancel = client.post(f"/api/projects/{project_id}/cancel", headers=HEADERS_A)
+    assert cancel.status_code == 200
+
+    result = _wait_for_project_completion(client, project_id, HEADERS_A, timeout=4.0)
+    assert result["status"] == "CANCELLED"
+    assert result["files"][0]["status"] == "SKIPPED"
+
+
 def test_run_project_does_not_clobber_a_cancel_that_arrived_first(client):
     """Regression test for a real bug: _run_project() used to unconditionally
     write status="ANALYZING" as its first action. If a cancel request set
