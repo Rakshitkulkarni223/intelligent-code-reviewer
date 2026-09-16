@@ -70,8 +70,15 @@ def test_status_not_connected_by_default(client):
     assert r.json() == {"connected": False, "githubUsername": None}
 
 
-def test_status_reflects_a_stored_connection(client):
+def test_status_reflects_a_stored_connection(client, monkeypatch):
     import asyncio
+
+    revoked_tokens = []
+
+    async def fake_revoke_grant(token):
+        revoked_tokens.append(token)
+
+    monkeypatch.setattr(github_service, "revoke_grant", fake_revoke_grant)
 
     asyncio.get_event_loop().run_until_complete(
         firestore_service.set_github_integration("github_user_a", "fake-token", "octocat")
@@ -79,6 +86,26 @@ def test_status_reflects_a_stored_connection(client):
     r = client.get("/api/github/status", headers=HEADERS_A)
     assert r.json() == {"connected": True, "githubUsername": "octocat"}
 
+    r = client.delete("/api/github/disconnect", headers=HEADERS_A)
+    assert r.status_code == 204
+    assert client.get("/api/github/status", headers=HEADERS_A).json()["connected"] is False
+    # The whole point of this fix: disconnect must also revoke the grant on
+    # GitHub's side, not just forget the token locally (see github.py's
+    # disconnect() and github_service.revoke_grant's docstring for why).
+    assert revoked_tokens == ["fake-token"]
+
+
+def test_disconnect_succeeds_locally_even_if_revoke_fails(client, monkeypatch):
+    import asyncio
+
+    async def failing_revoke_grant(token):
+        raise github_service.GithubApiError("token already invalid")
+
+    monkeypatch.setattr(github_service, "revoke_grant", failing_revoke_grant)
+
+    asyncio.get_event_loop().run_until_complete(
+        firestore_service.set_github_integration("github_user_a", "already-dead-token", "octocat")
+    )
     r = client.delete("/api/github/disconnect", headers=HEADERS_A)
     assert r.status_code == 204
     assert client.get("/api/github/status", headers=HEADERS_A).json()["connected"] is False

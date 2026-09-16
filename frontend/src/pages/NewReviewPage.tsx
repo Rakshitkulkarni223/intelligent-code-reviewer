@@ -169,23 +169,35 @@ export default function NewReviewPage() {
 
       {mode === 'project' ? (
         <>
-          <div className="segmented" role="tablist" style={{ marginBottom: 16 }}>
+          <div className="subnav" role="tablist">
             <button
               role="tab" aria-selected={projectSource === 'upload'}
-              className={`segmented-option${projectSource === 'upload' ? ' active' : ''}`}
+              className={`subnav-option${projectSource === 'upload' ? ' active' : ''}`}
               onClick={() => setProjectSource('upload')}
             >
               Upload Project
             </button>
             <button
               role="tab" aria-selected={projectSource === 'github'}
-              className={`segmented-option${projectSource === 'github' ? ' active' : ''}`}
+              className={`subnav-option${projectSource === 'github' ? ' active' : ''}`}
               onClick={() => setProjectSource('github')}
             >
               Import from GitHub
             </button>
           </div>
-          {projectSource === 'upload' ? <ProjectUploadPanel /> : <GithubImportPanel />}
+          {/* Both stay mounted once Project Review is open -- toggling via
+              conditional rendering destroyed and rebuilt whichever panel
+              wasn't showing on every switch, losing its state (selected
+              repo/branch, an in-progress upload, an already-imported
+              manifest) and, for GithubImportPanel, re-fetching GitHub
+              status/repos from scratch each time -- felt like the page was
+              refreshing on every click. */}
+          <div style={{ display: projectSource === 'upload' ? 'block' : 'none' }}>
+            <ProjectUploadPanel />
+          </div>
+          <div style={{ display: projectSource === 'github' ? 'block' : 'none' }}>
+            <GithubImportPanel />
+          </div>
         </>
       ) : (
       <div className="editor-panel">

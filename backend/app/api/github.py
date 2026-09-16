@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -7,6 +9,8 @@ from app.schemas.project_review import ProjectManifest
 from app.security.auth import get_current_user_id
 from app.services import firestore_service, github_service, project_review_service
 from app.services.zip_extraction import ZipValidationError
+
+logger = logging.getLogger("github_api")
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
@@ -71,6 +75,19 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
 
 @router.delete("/disconnect", status_code=204)
 async def disconnect(user_id: str = Depends(get_current_user_id)):
+    integration = await firestore_service.get_github_integration(user_id)
+    if integration:
+        try:
+            # Revokes the authorization on GitHub's side too, not just our
+            # own copy of the token -- otherwise reconnecting while the
+            # browser still has an active GitHub session silently re-issues
+            # a token for the same account with no consent screen and no
+            # chance to switch accounts. Best-effort: an already-invalid
+            # token (revoked elsewhere, expired) shouldn't block the local
+            # disconnect the user actually asked for.
+            await github_service.revoke_grant(integration["accessToken"])
+        except Exception:
+            logger.warning("failed to revoke GitHub grant for user_id=%s", user_id, exc_info=True)
     await firestore_service.delete_github_integration(user_id)
     return Response(status_code=204)
 

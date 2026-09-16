@@ -1,24 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../services/auth.tsx';
 import { disconnectGithub, getGithubStatus } from '../services/github';
-import type { GithubStatus } from '../types';
+import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../hooks/useToast';
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const [github, setGithub] = useState<GithubStatus | 'loading'>('loading');
   const [disconnecting, setDisconnecting] = useState(false);
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    getGithubStatus().then(setGithub).catch(() => setGithub({ connected: false }));
-  }, []);
+  // Shares one cache entry with GithubImportPanel (queryKeys.githubStatus)
+  // -- Settings is its own route, so it fully remounts every visit; without
+  // this it re-fetched and flashed a loading skeleton every single time.
+  const { data: github } = useQuery({ queryKey: queryKeys.githubStatus, queryFn: getGithubStatus });
 
   const handleDisconnect = async () => {
     setDisconnecting(true);
     try {
       await disconnectGithub();
-      setGithub({ connected: false });
+      queryClient.setQueryData(queryKeys.githubStatus, { connected: false });
       show('GitHub disconnected', 'success');
     } catch (e) {
       show(e instanceof Error ? e.message : 'Failed to disconnect GitHub', 'error');
@@ -39,7 +41,7 @@ export default function SettingsPage() {
 
       <div className="card" style={{ maxWidth: 480, marginTop: 16 }}>
         <div className="field-label">Integrations</div>
-        {github === 'loading' ? (
+        {!github ? (
           <div className="skeleton" style={{ height: 36 }} />
         ) : github.connected ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>

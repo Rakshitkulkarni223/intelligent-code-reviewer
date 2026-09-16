@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { GithubImportResult, GithubRepo, GithubStatus } from '../types';
-import { getGithubStatus, importGithubRepo, listGithubBranches, listGithubRepos, startGithubOAuth } from '../services/github';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { GithubImportResult, GithubRepo } from '../types';
+import { importGithubRepo, listGithubBranches, listGithubRepos, getGithubStatus, startGithubOAuth } from '../services/github';
+import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../hooks/useToast';
 import SelectMenu from './SelectMenu';
 import ProjectManifestReview from './ProjectManifestReview';
@@ -12,7 +14,6 @@ import ProjectManifestReview from './ProjectManifestReview';
 // on there is no difference between a zip upload and a GitHub import.
 export default function GithubImportPanel() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [status, setStatus] = useState<GithubStatus | 'checking'>('checking');
   const [connecting, setConnecting] = useState(false);
 
   const [repos, setRepos] = useState<GithubRepo[] | null>(null);
@@ -26,12 +27,13 @@ export default function GithubImportPanel() {
   const [result, setResult] = useState<GithubImportResult | null>(null);
 
   const { show } = useToast();
+  const queryClient = useQueryClient();
 
-  const refreshStatus = () => getGithubStatus().then(setStatus).catch(() => setStatus({ connected: false }));
-
-  useEffect(() => {
-    refreshStatus();
-  }, []);
+  // Shares one cache entry with Settings (queryKeys.githubStatus) -- this
+  // panel now stays mounted for the page's lifetime (see NewReviewPage), so
+  // this only ever runs once per visit regardless of how many times the
+  // Upload Project/Import from GitHub sub-tab is toggled.
+  const { data: status } = useQuery({ queryKey: queryKeys.githubStatus, queryFn: getGithubStatus });
 
   // Handles the return leg of the OAuth redirect (github.com -> our backend
   // callback -> here, with ?github=connected|error) -- clears the param
@@ -41,7 +43,7 @@ export default function GithubImportPanel() {
     if (!outcome) return;
     if (outcome === 'connected') {
       show('GitHub connected', 'success');
-      refreshStatus();
+      queryClient.invalidateQueries({ queryKey: queryKeys.githubStatus });
     } else if (outcome === 'error') {
       show('Failed to connect GitHub -- please try again', 'error');
     }
@@ -52,16 +54,18 @@ export default function GithubImportPanel() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (status === 'checking' || !status.connected) return;
+    if (!status?.connected) return;
     setRepos(null);
     setReposError(null);
     listGithubRepos()
       .then(setRepos)
       .catch((e) => {
         setReposError(e instanceof Error ? e.message : 'Failed to load repositories');
-        if (e instanceof Error && e.message.toLowerCase().includes('no longer valid')) setStatus({ connected: false });
+        if (e instanceof Error && e.message.toLowerCase().includes('no longer valid')) {
+          queryClient.setQueryData(queryKeys.githubStatus, { connected: false });
+        }
       });
-  }, [status]);
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!selectedRepo) {
@@ -123,7 +127,7 @@ export default function GithubImportPanel() {
     );
   }
 
-  if (status === 'checking') {
+  if (!status) {
     return <div className="skeleton" style={{ height: 140 }} />;
   }
 
@@ -174,6 +178,7 @@ export default function GithubImportPanel() {
               options={repos.map((r) => ({ value: r.fullName, label: r.fullName + (r.private ? ' 🔒' : '') }))}
               onChange={setSelectedRepo}
               ariaLabel="Repository"
+              searchable
             />
           </div>
 

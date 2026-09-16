@@ -714,6 +714,36 @@ button {
 }
 .tab-button:hover { color: var(--text); }
 .tab-button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* A second-level source/mode picker nested under a page's main tabs (e.g.
+   Project Review's Upload Project/Import from GitHub, under Code Review/
+   Project Review) -- a neutral raised-chip toggle, deliberately NOT another
+   underline row (would read as a second, unrelated tab-bar) and NOT the
+   accent-filled .segmented pill either (that's used one level deeper, for
+   Review Mode, and re-using its exact look there made the two controls
+   indistinguishable at a glance). */
+.subnav {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: 16px;
+}
+.subnav-option {
+  padding: 6px 14px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 3px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.subnav-option:hover { color: var(--text); }
+.subnav-option.active { background: var(--surface-hover); color: var(--text); box-shadow: var(--shadow-sm); }
 .tab-count {
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);

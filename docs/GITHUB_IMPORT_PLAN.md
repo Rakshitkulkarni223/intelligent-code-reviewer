@@ -180,10 +180,22 @@ No behavior depends on this field.
   feature needs per import (repo list, branch list, one commit lookup, one
   zipball download) -- no special handling needed beyond surfacing a 403
   rate-limit error to the user if it ever happens.
-- Revoking access: "Disconnect GitHub" deletes the stored token; consider
-  also calling GitHub's token-revocation endpoint
-  (`DELETE /applications/{client_id}/token`) so the token is invalidated on
-  GitHub's side too, not just forgotten locally.
+- Revoking access: **implemented**. "Disconnect GitHub" calls
+  `DELETE /applications/{client_id}/grant` (revokes the whole grant, not
+  just one token) before deleting the stored token locally, best-effort
+  (a failure there never blocks the local disconnect). This matters beyond
+  hygiene: without it, GitHub still considered the app pre-authorized for
+  that account, so reconnecting while the browser had an active GitHub
+  session silently re-issued a token with no consent screen at all -- no
+  "not you? sign in as a different user" option, since that only appears on
+  GitHub's own consent screen, which a still-valid grant skips entirely.
+  Revoking forces that screen to reappear on the next connect. This still
+  can't force a browser-level account switch on its own -- if the user
+  wants a genuinely different GitHub account and their browser is still
+  logged into the old one on github.com, they still need to use that
+  "sign in as a different user" link (or log out of GitHub separately)
+  once the consent screen reappears; nothing server-side can do that for
+  them.
 
 ## 6. Open decisions to confirm before implementing
 

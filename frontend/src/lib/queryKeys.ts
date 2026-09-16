@@ -4,4 +4,7 @@
 export const queryKeys = {
   reviews: ['reviews'] as const,
   projectReviews: ['projectReviews'] as const,
+  // Shared between Settings and GithubImportPanel -- connecting/disconnecting
+  // in one place is reflected in the other without either needing to refetch.
+  githubStatus: ['githubStatus'] as const,
 };

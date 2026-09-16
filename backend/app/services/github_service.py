@@ -109,6 +109,32 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
+async def revoke_grant(token: str) -> None:
+    """Revokes this app's entire authorization grant for whichever account
+    `token` belongs to (not just this one token) -- called from disconnect
+    so GitHub actually forgets the app was ever authorized. Without this,
+    disconnecting only forgot the token on our side: GitHub still considered
+    the app pre-authorized for that account, so reconnecting while the
+    browser still had an active GitHub session silently re-issued a new
+    token with no consent screen at all -- no chance to switch accounts,
+    since that "not you? sign in as a different user" option only appears
+    on GitHub's own consent screen, which a still-valid grant skips
+    entirely. Best-effort: a user disconnecting an already-invalid/expired
+    token should still succeed locally, so failures here are swallowed by
+    the caller, not raised."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.request(
+            "DELETE",
+            f"{GITHUB_API}/applications/{settings.github_client_id}/grant",
+            auth=(settings.github_client_id, settings.github_client_secret),
+            headers={"Accept": _API_HEADERS_ACCEPT, "X-GitHub-Api-Version": _API_VERSION},
+            json={"access_token": token},
+        )
+    # 404 just means GitHub already considers this grant gone -- not an error.
+    if resp.status_code not in (204, 404):
+        resp.raise_for_status()
+
+
 def _raise_for_common_errors(resp: httpx.Response, not_found_message: str) -> None:
     if resp.status_code == 401:
         raise GithubAuthError("GitHub token is no longer valid -- please reconnect your account")
