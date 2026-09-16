@@ -679,8 +679,8 @@ its existing per-document size limits and read-cost model. Split by kind of data
   `firestore_service`'s local stand-in), `LOCAL_MODE=false` calls real
   `google-cloud-storage`. This isn't a new GCP service for this project: Phase 10 already uses
   Cloud Storage for the historical-rules bucket (`historical_bucket`), so this reuses the same
-  client library and credentials, just a different bucket/prefix
-  (`gs://{project_files_bucket}/{userId}/{projectId}/files/{fileId}.txt`) written to at runtime
+  client library, credentials, and bucket, just a different prefix
+  (`gs://{historical_bucket}/{userId}/{projectId}/files/{fileId}.txt`) written to at runtime
   instead of only by the offline ingestion script.
 - `ProjectFile.codeStorageUri` and `ProjectReview.zipStorageUri` are the only pointers Firestore
   holds; `GET /api/projects/{id}/files/{fileId}` is the only place `code_storage_service.get()` is

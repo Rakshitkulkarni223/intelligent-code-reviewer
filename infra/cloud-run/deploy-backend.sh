@@ -26,8 +26,7 @@ set -euo pipefail
 : "${PUBSUB_SUBSCRIPTION:?}"
 : "${HISTORICAL_BUCKET:?}"
 # Project review's file/zip storage (code_storage_service.py) reuses this
-# same bucket rather than a separate PROJECT_FILES_BUCKET setting -- they
-# were never actually pointed at different buckets in practice.
+# same bucket.
 
 SERVICE_NAME="${BACKEND_SERVICE_NAME:-code-reviewer-backend}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

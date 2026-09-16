@@ -6,12 +6,7 @@ ponytail: _store is an in-memory {storageUri: text} dict standing in for
 Cloud Storage, used while LOCAL_MODE=true -- same shape/lifetime as
 firestore_service's own local stand-in. LOCAL_MODE=false calls real
 google-cloud-storage, reusing the same bucket/credentials Phase 10 already
-set up for the historical-rules bucket (settings.historical_bucket) -- a
-separate PROJECT_FILES_BUCKET setting existed briefly but was never
-actually pointed at a different bucket in practice, so it was collapsed
-into this one to stop carrying two config keys for one real value. A real
-future need to isolate project-file storage on its own bucket would bring
-that split back, not require a new setting.
+set up for the historical-rules bucket (settings.historical_bucket).
 """
 
 import asyncio
