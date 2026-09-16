@@ -6,9 +6,12 @@ ponytail: _store is an in-memory {storageUri: text} dict standing in for
 Cloud Storage, used while LOCAL_MODE=true -- same shape/lifetime as
 firestore_service's own local stand-in. LOCAL_MODE=false calls real
 google-cloud-storage, reusing the same bucket/credentials Phase 10 already
-set up for the historical-rules bucket, just a different bucket/prefix
-(project_files_bucket) written to at runtime instead of only by the offline
-ingestion script.
+set up for the historical-rules bucket (settings.historical_bucket) -- a
+separate PROJECT_FILES_BUCKET setting existed briefly but was never
+actually pointed at a different bucket in practice, so it was collapsed
+into this one to stop carrying two config keys for one real value. A real
+future need to isolate project-file storage on its own bucket would bring
+that split back, not require a new setting.
 """
 
 import asyncio
@@ -33,7 +36,7 @@ def _get_client():
 def _blob_path(uri: str) -> str:
     # uri shape: gs://{bucket}/{path} -- strip the bucket prefix this
     # service itself always writes (see put()), never trust an arbitrary uri.
-    prefix = f"gs://{settings.project_files_bucket}/"
+    prefix = f"gs://{settings.historical_bucket}/"
     if not uri.startswith(prefix):
         raise ValueError(f"Unexpected storage uri: {uri}")
     return uri[len(prefix):]
@@ -46,8 +49,8 @@ async def put(user_id: str, project_id: str, file_id: str, text: str) -> str:
             _store[uri] = text
         return uri
 
-    uri = f"gs://{settings.project_files_bucket}/{user_id}/{project_id}/files/{file_id}.txt"
-    blob = _get_client().bucket(settings.project_files_bucket).blob(_blob_path(uri))
+    uri = f"gs://{settings.historical_bucket}/{user_id}/{project_id}/files/{file_id}.txt"
+    blob = _get_client().bucket(settings.historical_bucket).blob(_blob_path(uri))
     await asyncio.to_thread(blob.upload_from_string, text, content_type="text/plain; charset=utf-8")
     return uri
 
@@ -60,7 +63,7 @@ async def get(uri: str) -> str:
             raise KeyError(f"No stored content for {uri}")
         return text
 
-    blob = _get_client().bucket(settings.project_files_bucket).blob(_blob_path(uri))
+    blob = _get_client().bucket(settings.historical_bucket).blob(_blob_path(uri))
     return await asyncio.to_thread(blob.download_as_text)
 
 
@@ -71,8 +74,8 @@ async def put_original_zip(user_id: str, project_id: str, data: bytes) -> str:
             _store[uri] = data  # type: ignore[assignment] -- local stand-in only, bytes not text
         return uri
 
-    uri = f"gs://{settings.project_files_bucket}/{user_id}/{project_id}/original.zip"
-    blob = _get_client().bucket(settings.project_files_bucket).blob(_blob_path(uri))
+    uri = f"gs://{settings.historical_bucket}/{user_id}/{project_id}/original.zip"
+    blob = _get_client().bucket(settings.historical_bucket).blob(_blob_path(uri))
     await asyncio.to_thread(blob.upload_from_string, data, content_type="application/zip")
     return uri
 
@@ -92,7 +95,7 @@ async def delete_project_data(user_id: str, project_id: str) -> None:
         return
 
     prefix = f"{user_id}/{project_id}/"
-    bucket = _get_client().bucket(settings.project_files_bucket)
+    bucket = _get_client().bucket(settings.historical_bucket)
     blobs = await asyncio.to_thread(lambda: list(bucket.list_blobs(prefix=prefix)))
     for blob in blobs:
         await asyncio.to_thread(blob.delete)
