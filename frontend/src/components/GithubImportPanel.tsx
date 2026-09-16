@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { GithubImportResult, GithubRepo } from '../types';
@@ -28,6 +28,13 @@ export default function GithubImportPanel() {
 
   const { show } = useToast();
   const queryClient = useQueryClient();
+  // Guards the OAuth-return effect below against firing twice -- StrictMode
+  // (main.tsx) deliberately double-invokes effects in dev, and both
+  // invocations can see the same ?github=connected before the first one's
+  // setSearchParams call has actually stripped it from the URL, showing the
+  // toast twice. A ref (not state) is required: it must be visible to the
+  // second invocation synchronously, before any re-render happens.
+  const handledOAuthReturn = useRef(false);
 
   // Shares one cache entry with Settings (queryKeys.githubStatus) -- this
   // panel now stays mounted for the page's lifetime (see NewReviewPage), so
@@ -40,7 +47,8 @@ export default function GithubImportPanel() {
   // immediately so refreshing the page doesn't replay the toast.
   useEffect(() => {
     const outcome = searchParams.get('github');
-    if (!outcome) return;
+    if (!outcome || handledOAuthReturn.current) return;
+    handledOAuthReturn.current = true;
     if (outcome === 'connected') {
       show('GitHub connected', 'success');
       queryClient.invalidateQueries({ queryKey: queryKeys.githubStatus });
