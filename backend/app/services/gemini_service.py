@@ -225,10 +225,12 @@ def _sanitize_suggested_fix(issue: Issue, code: str) -> None:
     issue.suggestedFix = _restore_leading_indentation(code, issue.line, fix)
 
 
-async def _analyze_with_gemini(code: str, language: str, historical_rules: list[HistoricalRule]) -> tuple[GeminiAnalysis, set[str]]:
+async def _analyze_with_gemini(
+    code: str, language: str, historical_rules: list[HistoricalRule], model: str
+) -> tuple[GeminiAnalysis, set[str]]:
     client = _get_client()
     response = await client.aio.models.generate_content(
-        model=settings.gemini_model,
+        model=model,
         contents=_build_prompt(code, language, historical_rules),
         config=types.GenerateContentConfig(
             system_instruction=_SYSTEM_INSTRUCTIONS,
@@ -255,11 +257,14 @@ async def _analyze_with_gemini(code: str, language: str, historical_rules: list[
 
 
 async def analyze_code(
-    code: str, language: str, historical_rules: list[HistoricalRule] | None = None
+    code: str, language: str, historical_rules: list[HistoricalRule] | None = None, model: str | None = None
 ) -> tuple[GeminiAnalysis, set[str]]:
+    """model defaults to settings.gemini_model (single-file Code Review's
+    own setting) -- project_review_service.py passes its own tiered choice
+    explicitly instead (see PRO_MODEL_TIERS)."""
     if settings.local_mode:
         return _analyze_code_mock(code, language)
-    return await _analyze_with_gemini(code, language, historical_rules or [])
+    return await _analyze_with_gemini(code, language, historical_rules or [], model or settings.gemini_model)
 
 
 # ponytail: the project-summary pass (docs/PROJECT_ZIP_REVIEW_PLAN.md §4.7)
@@ -295,11 +300,11 @@ def _summarize_project_mock(file_summaries: list[dict]) -> tuple[str, list[str]]
     return summary, recommendations
 
 
-async def _summarize_project_with_gemini(profile: dict, file_summaries: list[dict]) -> tuple[str, list[str]]:
+async def _summarize_project_with_gemini(profile: dict, file_summaries: list[dict], model: str) -> tuple[str, list[str]]:
     client = _get_client()
     payload = {"profile": profile, "fileSummaries": file_summaries}
     response = await client.aio.models.generate_content(
-        model=settings.gemini_model,
+        model=model,
         contents=json.dumps(payload),
         config=types.GenerateContentConfig(
             system_instruction=_PROJECT_SUMMARY_INSTRUCTIONS,
@@ -312,7 +317,7 @@ async def _summarize_project_with_gemini(profile: dict, file_summaries: list[dic
     return output.summary, output.recommendations
 
 
-async def summarize_project(profile: dict, file_summaries: list[dict]) -> tuple[str, list[str]]:
+async def summarize_project(profile: dict, file_summaries: list[dict], model: str | None = None) -> tuple[str, list[str]]:
     if settings.local_mode:
         return _summarize_project_mock(file_summaries)
-    return await _summarize_project_with_gemini(profile, file_summaries)
+    return await _summarize_project_with_gemini(profile, file_summaries, model or settings.gemini_model)

@@ -439,6 +439,29 @@ If this call fails, it degrades to `summary: null` and the dashboard simply omit
 it never blocks the project from reaching `COMPLETED`, since every file's own result is already
 the substantive part of the review.
 
+### 4.7.1 Tiered model routing (added post-v1, after a real cost/latency issue)
+
+`gemini_service.analyze_code`/`summarize_project` were originally hardcoded to `settings.gemini_model`
+for every call — fine for single-file Code Review (one call), but Project Review makes one call
+per included file, so switching that one setting to a stronger/slower model (`gemini-2.5-pro`, after
+`gemini-2.0-flash-001` turned out to be unavailable on this GCP project) multiplied the latency and
+cost across every file in every project, with no quality benefit for a config file or a test
+fixture.
+
+Fix: `PRO_MODEL_TIERS` (`app/schemas/project_review.py`) restricts the stronger model
+(`settings.project_review_pro_model`) to the two tiers where the extra reasoning is actually worth
+it — `auth` (security-sensitive) and `api` (the project's external-facing surface, the most
+architecturally significant tier). Every other tier (`data`, `source`, `util`, `config`, `test`,
+`docs`) uses the fast model (`settings.project_review_flash_model`). Both settings are independent
+of `GEMINI_MODEL`, which remains single-file Code Review's own setting — routing decisions never
+touch that call site. The one-per-project summary pass (§4.7) always uses the Pro model, since it's
+a single call regardless of project size, so the extra latency there never compounds.
+
+Verified live against a real project with one file per tier: the two Flash-tier files completed
+almost immediately while the two Pro-tier files were still processing, confirming both that they
+run concurrently (§4.8's bounded concurrency, not blocked on each other) and that the routing
+actually restricts the slow model to only the tiers that need it.
+
 ### 4.8 Processing / worker
 
 - Reuses the existing fire-and-forget asyncio-task pattern (`review_worker.py`'s shape), on its

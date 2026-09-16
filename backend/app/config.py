@@ -49,6 +49,11 @@ class Settings:
     project_file_max_tokens = _int_env("PROJECT_FILE_MAX_TOKENS", 12_000)
     project_review_concurrency = _int_env("PROJECT_REVIEW_CONCURRENCY", 4)
     project_file_max_retries = _int_env("PROJECT_FILE_MAX_RETRIES", 2)
+    # Tiered model routing (app/schemas/project_review.py's PRO_MODEL_TIERS) --
+    # independent of GEMINI_MODEL, which is single-file Code Review's own
+    # setting and is never used for Project Review's per-file calls.
+    project_review_flash_model = os.environ.get("PROJECT_REVIEW_FLASH_MODEL", "gemini-2.5-flash")
+    project_review_pro_model = os.environ.get("PROJECT_REVIEW_PRO_MODEL", "gemini-2.5-pro")
 
     # --- GitHub import (docs/GITHUB_IMPORT_PLAN.md) ---
     github_client_id = os.environ.get("GITHUB_CLIENT_ID", "")

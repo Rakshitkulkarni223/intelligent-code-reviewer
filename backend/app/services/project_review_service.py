@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from app.config import settings
 from app.schemas.project_review import (
+    PRO_MODEL_TIERS,
     SCORE_EXCLUDED_TIERS,
     ExcludedEntry as ManifestExcludedEntry,
     ManifestFile,
@@ -414,8 +415,12 @@ async def analyze_project_file(user_id: str, project_id: str, file_id: str) -> N
     except ValidationError as exc:
         raise StagedFailure("VALIDATION_ERROR", False, exc) from exc
 
+    # Tiered model routing (PRO_MODEL_TIERS) -- calling the strongest model
+    # for every file in a project doesn't scale; only the tiers where that
+    # extra reasoning is actually worth the latency get it.
+    model = settings.project_review_pro_model if pf.tier in PRO_MODEL_TIERS else settings.project_review_flash_model
     try:
-        analysis, _categories = await gemini_service.analyze_code(budgeted_code, pf.language)
+        analysis, _categories = await gemini_service.analyze_code(budgeted_code, pf.language, model=model)
     except Exception as exc:  # noqa: BLE001
         raise StagedFailure("GEMINI_ERROR", is_transient_failure(exc), exc) from exc
 
@@ -484,7 +489,12 @@ async def _run_summary_pass(project: ProjectReview, files: list[ProjectFile]) ->
     if not file_summaries:
         return None, []
     try:
-        summary, recommendations = await gemini_service.summarize_project(project.profile.model_dump(), file_summaries)
+        # A single call regardless of project size, so the stronger model's
+        # extra latency doesn't compound the way it would per-file -- always
+        # worth it here for the cross-file reasoning this pass exists for.
+        summary, recommendations = await gemini_service.summarize_project(
+            project.profile.model_dump(), file_summaries, model=settings.project_review_pro_model
+        )
         return summary, recommendations
     except Exception:  # noqa: BLE001 -- never blocks COMPLETED; every file's own result is already the substance
         logger.warning("project summary pass failed projectId=%s", project.id, exc_info=True)

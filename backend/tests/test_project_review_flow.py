@@ -99,6 +99,51 @@ def test_full_project_review_flow_completes_and_aggregates(client):
     assert scores["src/auth/login.py"] < scores["src/main.py"]
 
 
+def test_project_review_routes_pro_model_only_to_auth_and_api_tiers(client, monkeypatch):
+    """Calling the strongest Gemini model for every file in a project doesn't
+    scale -- PRO_MODEL_TIERS (app/schemas/project_review.py) restricts it to
+    auth/api, the tiers where the extra reasoning is actually worth the
+    latency. Every other tier (source, util here) should get the fast model."""
+    from app.config import settings
+    from app.services import gemini_service as gs
+
+    original_analyze = gs.analyze_code
+    recorded_models: dict[str, str | None] = {}
+
+    async def recording_analyze(code, language, historical_rules=None, model=None):
+        recorded_models[code] = model
+        return await original_analyze(code, language, historical_rules, model)
+
+    monkeypatch.setattr(gs, "analyze_code", recording_analyze)
+
+    entries = {
+        "src/auth/login.py": "AUTH_TIER\n" + CLEAN_FILE,
+        "src/api/routes.py": "API_TIER\n" + CLEAN_FILE,
+        "src/main.py": "SOURCE_TIER\n" + CLEAN_FILE,
+        "src/utils/helpers.py": "UTIL_TIER\n" + CLEAN_FILE,
+    }
+    manifest = _upload_manifest(client, HEADERS_A, entries).json()
+    tiers_by_path = {f["path"]: f["tier"] for f in manifest["files"]}
+    # Sanity-check the tier assumptions this test's routing assertions rely on.
+    assert tiers_by_path == {
+        "src/auth/login.py": "auth", "src/api/routes.py": "api",
+        "src/main.py": "source", "src/utils/helpers.py": "util",
+    }
+
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": list(entries.keys()), "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    _wait_for_project_completion(client, project_id, HEADERS_A)
+
+    assert recorded_models["AUTH_TIER\n" + CLEAN_FILE] == settings.project_review_pro_model
+    assert recorded_models["API_TIER\n" + CLEAN_FILE] == settings.project_review_pro_model
+    assert recorded_models["SOURCE_TIER\n" + CLEAN_FILE] == settings.project_review_flash_model
+    assert recorded_models["UTIL_TIER\n" + CLEAN_FILE] == settings.project_review_flash_model
+
+
 def test_project_file_drilldown_returns_code_and_result(client):
     manifest = _upload_manifest(client, HEADERS_A, {"src/main.py": CLEAN_FILE}).json()
     create = client.post(
@@ -213,9 +258,9 @@ def test_cancel_actually_stops_files_still_waiting_for_a_slot(client, monkeypatc
 
     original_analyze = gs.analyze_code
 
-    async def slow_analyze(code, language, historical_rules=None):
+    async def slow_analyze(code, language, historical_rules=None, model=None):
         await asyncio.sleep(0.3)
-        return await original_analyze(code, language, historical_rules)
+        return await original_analyze(code, language, historical_rules, model)
 
     monkeypatch.setattr(gs, "analyze_code", slow_analyze)
 

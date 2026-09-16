@@ -25,6 +25,17 @@ STANDARD_DEFAULT_TIERS: frozenset[PriorityTier] = frozenset({"auth", "api", "dat
 # still useful, it just shouldn't dilute the score of the code that matters.
 SCORE_EXCLUDED_TIERS: frozenset[PriorityTier] = frozenset({"config", "test", "docs"})
 
+# Tiers analyzed with the stronger/slower Gemini model (settings.
+# project_review_pro_model); every other tier uses the fast one (settings.
+# project_review_flash_model). Calling the strongest model for every file in
+# a project doesn't scale -- latency and cost multiply by file count with no
+# quality gain for a config file or a test fixture. "auth" (security-
+# sensitive) and "api" (the project's external-facing surface, most
+# architecturally significant) are the two tiers where the stronger model's
+# reasoning is actually worth the extra latency; everything else -- data,
+# source, util, config, test, docs -- gets the fast model.
+PRO_MODEL_TIERS: frozenset[PriorityTier] = frozenset({"auth", "api"})
+
 
 class ProjectProfile(BaseModel):
     projectType: str = "Unknown"
