@@ -83,6 +83,30 @@ def _normalized_segments(name: str) -> list[str]:
     return [seg for seg in name.replace("\\", "/").split("/") if seg not in ("", ".")]
 
 
+def _common_top_level_dir(names: list[str]) -> str | None:
+    """If every entry shares the same first path segment, returns it so
+    extract_project(strip_common_root=True) can strip it before assigning
+    display paths. Deliberately opt-in (see that flag) rather than always
+    on: "every file happens to share one leading directory" is genuinely
+    ambiguous from inside the zip alone -- it's true both for an archive
+    wrapped in an artifact folder (GitHub's zipball endpoint always wraps
+    everything in "{repo}-{sha}/") *and* for a perfectly ordinary project
+    that just keeps everything under e.g. "src/". Only the caller knows
+    which case it has."""
+    top: str | None = None
+    for name in names:
+        segments = _normalized_segments(name)
+        if not segments:
+            continue
+        if len(segments) < 2:
+            return None
+        if top is None:
+            top = segments[0]
+        elif segments[0] != top:
+            return None
+    return top
+
+
 def _is_path_safe(name: str) -> bool:
     """Rejects traversal outright as defense in depth -- the displayed path
     is still untrusted text even though nothing is ever written to a real
@@ -117,12 +141,22 @@ def validate_archive_bytes(data: bytes) -> None:
         raise ZipValidationError("Archive is empty")
 
 
-def extract_project(data: bytes) -> ExtractionResult:
+def extract_project(data: bytes, strip_common_root: bool = False) -> ExtractionResult:
     """Runs every §8 guard, in order, and returns only text file contents
     that passed all of them. Raises ZipValidationError on any archive-level
     violation (rejected outright, before any entry is read) -- a per-entry
     problem (binary content, noise directory, one oversized file, ...) is
     never fatal to the whole archive, it's just excluded with a reason.
+
+    strip_common_root: only ever passed True by the GitHub import path
+    (docs/GITHUB_IMPORT_PLAN.md), where the caller *knows* the archive is a
+    GitHub zipball and therefore *knows* the single wrapping "{repo}-{sha}/"
+    directory is an artifact of the download format, not meaningful project
+    structure. Left False (default) for every ordinary upload, where "every
+    file shares one leading directory" is genuinely ambiguous -- it can't
+    tell a real project that just keeps everything under e.g. "src/" apart
+    from an artifact wrapper, and guessing wrong would silently corrupt
+    every path in the manifest.
     """
     validate_archive_bytes(data)
 
@@ -143,6 +177,12 @@ def extract_project(data: bytes) -> ExtractionResult:
 
     total_uncompressed = 0
     result = ExtractionResult()
+
+    common_top_level_dir = (
+        _common_top_level_dir([info.filename for info in infos if not (info.filename.endswith("/") or info.is_dir())])
+        if strip_common_root
+        else None
+    )
 
     for info in infos:
         name = info.filename
@@ -168,6 +208,8 @@ def extract_project(data: bytes) -> ExtractionResult:
         segments = _normalized_segments(name)
         if not segments:
             continue
+        if common_top_level_dir and segments[0] == common_top_level_dir:
+            segments = segments[1:]
         display_path = "/".join(segments)
         basename = segments[-1]
 

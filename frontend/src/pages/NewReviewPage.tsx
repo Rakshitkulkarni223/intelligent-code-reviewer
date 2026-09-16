@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type DragEvent } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import CodeEditor, { type EditorMarker } from '../components/CodeEditor';
 import LanguageSelector from '../components/LanguageSelector';
@@ -7,6 +7,7 @@ import ReviewButton from '../components/ReviewButton';
 import ConfirmModal from '../components/ConfirmModal';
 import ValidationStatus from '../components/ValidationStatus';
 import ProjectUploadPanel from '../components/ProjectUploadPanel';
+import GithubImportPanel from '../components/GithubImportPanel';
 import { detectLanguage } from '../lib/languageDetect';
 import { createReview } from '../services/reviews';
 import { queryKeys } from '../lib/queryKeys';
@@ -14,6 +15,7 @@ import { useToast } from '../hooks/useToast';
 import { useCodeValidation } from '../hooks/useCodeValidation';
 
 type InputMode = 'single' | 'project';
+type ProjectSource = 'upload' | 'github';
 
 const MAX_BYTES = 500 * 1024; // 500 KB, per spec input limits
 const MAX_LINES = 50_000;
@@ -33,7 +35,15 @@ interface EditCodeState {
 }
 
 export default function NewReviewPage() {
-  const [mode, setMode] = useState<InputMode>('single');
+  // The OAuth redirect (github.com -> our backend -> here) is a full page
+  // navigation, so this component mounts fresh with ?github=connected|error
+  // in the URL -- defaulting straight to the Project Review/GitHub tab here
+  // means the user lands back where they left off instead of on Code
+  // Review with the outcome silently unhandled by GithubImportPanel
+  // underneath it. GithubImportPanel itself reads and clears the param.
+  const [searchParams] = useSearchParams();
+  const [mode, setMode] = useState<InputMode>(searchParams.has('github') ? 'project' : 'single');
+  const [projectSource, setProjectSource] = useState<ProjectSource>(searchParams.has('github') ? 'github' : 'upload');
   const location = useLocation();
   // Set when arriving via an "Edit Code" action (e.g. from a completed or
   // failed review) that wants this page pre-filled instead of blank -- see
@@ -158,7 +168,25 @@ export default function NewReviewPage() {
       </div>
 
       {mode === 'project' ? (
-        <ProjectUploadPanel />
+        <>
+          <div className="segmented" role="tablist" style={{ marginBottom: 16 }}>
+            <button
+              role="tab" aria-selected={projectSource === 'upload'}
+              className={`segmented-option${projectSource === 'upload' ? ' active' : ''}`}
+              onClick={() => setProjectSource('upload')}
+            >
+              Upload Project
+            </button>
+            <button
+              role="tab" aria-selected={projectSource === 'github'}
+              className={`segmented-option${projectSource === 'github' ? ' active' : ''}`}
+              onClick={() => setProjectSource('github')}
+            >
+              Import from GitHub
+            </button>
+          </div>
+          {projectSource === 'upload' ? <ProjectUploadPanel /> : <GithubImportPanel />}
+        </>
       ) : (
       <div className="editor-panel">
         <div className="editor-toolbar">

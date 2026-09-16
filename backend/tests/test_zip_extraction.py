@@ -44,6 +44,44 @@ def test_included_file_text_is_decoded_correctly():
     assert result.files[0].size == len(b"x = 1\n")
 
 
+def test_common_wrapping_directory_is_stripped_when_opted_in():
+    # Mirrors GitHub's zipball endpoint, which wraps every file in
+    # "{repo}-{sha}/" -- strip_common_root=True is what the GitHub import
+    # path passes, since it alone knows this is a download-format artifact.
+    data = _make_zip({
+        "myrepo-a1b2c3d/src/main.py": b"def main():\n    return 1\n",
+        "myrepo-a1b2c3d/README.md": b"# Hello\n",
+    })
+    result = ze.extract_project(data, strip_common_root=True)
+    assert _paths(result) == {"src/main.py", "README.md"}
+
+
+def test_common_root_left_alone_by_default():
+    # An ordinary upload never opts in, so an otherwise-identical archive is
+    # left completely untouched by default -- this is the exact case that
+    # made a blanket "always strip" wrong: a real project can legitimately
+    # keep everything under one shared directory, indistinguishable from a
+    # wrapper folder just by looking inside the zip.
+    data = _make_zip({
+        "myproject/src/main.py": b"def main():\n    return 1\n",
+        "myproject/README.md": b"# Hello\n",
+    })
+    result = ze.extract_project(data)
+    assert _paths(result) == {"myproject/src/main.py", "myproject/README.md"}
+
+
+def test_wrapping_directory_not_stripped_when_a_file_sits_at_root():
+    # Not every entry shares the folder (README.md is at the archive root),
+    # so nothing should be stripped even with strip_common_root=True --
+    # stripping only when it's unambiguous is the whole point.
+    data = _make_zip({
+        "myproject/src/main.py": b"def main():\n    return 1\n",
+        "README.md": b"# Hello\n",
+    })
+    result = ze.extract_project(data, strip_common_root=True)
+    assert _paths(result) == {"myproject/src/main.py", "README.md"}
+
+
 # ---- Path traversal / zip-slip ----
 
 

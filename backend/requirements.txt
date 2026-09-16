@@ -7,3 +7,4 @@ google-genai==2.23.0
 google-cloud-aiplatform==1.165.1
 google-cloud-pubsub==2.40.0
 google-cloud-firestore==2.30.0
+httpx==0.28.1

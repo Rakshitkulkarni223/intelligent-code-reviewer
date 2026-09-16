@@ -116,11 +116,15 @@ def _prune_expired_uploads() -> None:
         del _upload_cache[token]
 
 
-async def preview_project(user_id: str, filename: str, data: bytes) -> ProjectManifest:
+async def preview_project(user_id: str, filename: str, data: bytes, strip_common_root: bool = False) -> ProjectManifest:
     """§5.2/§5.3's manifest step. Raises ZipValidationError (400) on an
     archive-level violation; the caller (api/projects.py) maps that to the
-    right HTTP status."""
-    extraction = extract_project(data)  # raises ZipValidationError
+    right HTTP status.
+
+    strip_common_root is passed True only by the GitHub import path (docs/
+    GITHUB_IMPORT_PLAN.md) -- see extract_project's own docstring for why
+    this can't just always be on."""
+    extraction = extract_project(data, strip_common_root=strip_common_root)  # raises ZipValidationError
 
     profile = project_detector.detect_project(extraction.files)
 

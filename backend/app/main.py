@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.code_validation import router as code_validation_router
+from app.api.github import router as github_router
 from app.api.projects import router as projects_router
 from app.api.reviews import router as reviews_router
 from app.config import settings
@@ -85,6 +86,7 @@ app.add_middleware(
 app.include_router(reviews_router)
 app.include_router(code_validation_router)
 app.include_router(projects_router)
+app.include_router(github_router)
 
 
 @app.get("/health")

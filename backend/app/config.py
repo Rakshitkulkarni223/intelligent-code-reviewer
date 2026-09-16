@@ -51,5 +51,10 @@ class Settings:
     project_file_max_retries = _int_env("PROJECT_FILE_MAX_RETRIES", 2)
     project_files_bucket = os.environ.get("PROJECT_FILES_BUCKET", "")
 
+    # --- GitHub import (docs/GITHUB_IMPORT_PLAN.md) ---
+    github_client_id = os.environ.get("GITHUB_CLIENT_ID", "")
+    github_client_secret = os.environ.get("GITHUB_CLIENT_SECRET", "")
+    github_oauth_redirect_uri = os.environ.get("GITHUB_OAUTH_REDIRECT_URI", "")
+
 
 settings = Settings()

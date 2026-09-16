@@ -218,6 +218,29 @@ export interface ProjectReview {
   files: ProjectFile[];
 }
 
+// Mirrors backend/app/api/github.py -- keep in sync.
+export interface GithubStatus {
+  connected: boolean;
+  githubUsername?: string;
+}
+
+export interface GithubRepo {
+  fullName: string;
+  defaultBranch: string;
+  private: boolean;
+}
+
+export interface GithubBranch {
+  name: string;
+}
+
+export interface GithubImportResult {
+  manifest: ProjectManifest;
+  repoFullName: string;
+  branch: string;
+  commitSha: string;
+}
+
 export interface ProjectReviewSummary {
   id: string;
   status: ProjectReviewStatus;

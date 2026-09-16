@@ -23,6 +23,11 @@ _project_store: dict[str, dict[str, ProjectReview]] = {}
 _project_files_store: dict[str, dict[str, dict[str, ProjectFile]]] = {}
 _project_lock = asyncio.Lock()
 
+# Same stand-in pattern, for `users/{userId}/integrations/github` (docs/
+# GITHUB_IMPORT_PLAN.md §4.4) -- one connected GitHub account per app user.
+_github_store: dict[str, dict] = {}
+_github_lock = asyncio.Lock()
+
 _client: firestore.AsyncClient | None = None
 
 
@@ -332,5 +337,38 @@ async def delete_project_review(user_id: str, project_id: str) -> bool:
         return False
     async for doc in ref.collection("files").stream():
         await doc.reference.delete()
+    await ref.delete()
+    return True
+
+
+def _github_ref(user_id: str):
+    return _get_client().collection("users").document(user_id).collection("integrations").document("github")
+
+
+async def get_github_integration(user_id: str) -> dict | None:
+    if settings.local_mode:
+        async with _github_lock:
+            return _github_store.get(user_id)
+    snapshot = await _github_ref(user_id).get()
+    return snapshot.to_dict() if snapshot.exists else None
+
+
+async def set_github_integration(user_id: str, access_token: str, github_username: str) -> None:
+    data = {"accessToken": access_token, "githubUsername": github_username, "connectedAt": now()}
+    if settings.local_mode:
+        async with _github_lock:
+            _github_store[user_id] = data
+        return
+    await _github_ref(user_id).set(data)
+
+
+async def delete_github_integration(user_id: str) -> bool:
+    if settings.local_mode:
+        async with _github_lock:
+            return _github_store.pop(user_id, None) is not None
+    ref = _github_ref(user_id)
+    snapshot = await ref.get()
+    if not snapshot.exists:
+        return False
     await ref.delete()
     return True
