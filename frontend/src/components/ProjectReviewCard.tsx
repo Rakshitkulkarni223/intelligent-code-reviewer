@@ -46,7 +46,13 @@ export default function ProjectReviewCard({
             {STATUS_LABELS[project.status]}
           </span>
           {onDelete && (
-            <button className="icon-btn icon-btn-sm" onClick={() => onDelete(project.id)} aria-label="Delete project review" title="Delete project review">
+            <button
+              className="icon-btn icon-btn-sm"
+              onClick={() => onDelete(project.id)}
+              disabled={inProgress.has(project.status)}
+              aria-label="Delete project review"
+              title={inProgress.has(project.status) ? "Can't delete while this project is being analyzed" : 'Delete project review'}
+            >
               <TrashIcon />
             </button>
           )}

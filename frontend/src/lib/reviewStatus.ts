@@ -46,6 +46,17 @@ export function statusBg(status: ReviewStatus): string {
   return BACKGROUNDS[status];
 }
 
+// Mirrors ProjectReviewCard's own inProgress Set -- used to disable (not
+// hide) the delete action while a review is actively being worked on by
+// the backend, since deleting mid-flight can race the worker's own writes
+// to that same review doc. DRAFT is deliberately excluded: it was never
+// submitted, so there's no backend job to race with.
+const IN_PROGRESS_STATUSES = new Set<ReviewStatus>(['SUBMITTED', 'QUEUED', 'ANALYZING']);
+
+export function isReviewInProgress(status: ReviewStatus): boolean {
+  return IN_PROGRESS_STATUSES.has(status);
+}
+
 export function reviewLinkTo(review: { id: string; status: ReviewStatus }): string {
   return review.status === 'COMPLETED' ? `/reviews/${review.id}` : `/reviews/${review.id}/progress`;
 }

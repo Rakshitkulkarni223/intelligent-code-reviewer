@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { Review } from '../types';
-import { failureMessage, formatDateTime, reviewLinkTo } from '../lib/reviewStatus';
+import { failureMessage, formatDateTime, isReviewInProgress, reviewLinkTo } from '../lib/reviewStatus';
 import LanguageBadge from './LanguageBadge';
 import StatusBadge from './StatusBadge';
 import { TrashIcon } from './icons';
@@ -23,7 +23,13 @@ export default function ReviewCard({
         <div className="review-card-top-right">
           <StatusBadge status={review.status} />
           {onDelete && (
-            <button className="icon-btn icon-btn-sm" onClick={() => onDelete(review.id)} aria-label="Delete review" title="Delete review">
+            <button
+              className="icon-btn icon-btn-sm"
+              onClick={() => onDelete(review.id)}
+              disabled={isReviewInProgress(review.status)}
+              aria-label="Delete review"
+              title={isReviewInProgress(review.status) ? "Can't delete while this review is in progress" : 'Delete review'}
+            >
               <TrashIcon />
             </button>
           )}

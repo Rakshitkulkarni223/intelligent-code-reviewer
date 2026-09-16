@@ -47,7 +47,13 @@ class Settings:
     max_project_files = _int_env("MAX_PROJECT_FILES", 500)
     project_file_max_lines = _int_env("PROJECT_FILE_MAX_LINES", 1000)
     project_file_max_tokens = _int_env("PROJECT_FILE_MAX_TOKENS", 12_000)
-    project_review_concurrency = _int_env("PROJECT_REVIEW_CONCURRENCY", 4)
+    # Doubled from the original default of 4 after measuring a real 10-file
+    # project against this app's own GCP project: ~65s at concurrency=4 vs
+    # ~30s at 8, zero rate-limit errors either way. Raise further only after
+    # re-measuring -- this is bounded by Vertex AI's actual per-minute quota
+    # for the configured Gemini model/project/region, not a number that's
+    # safe to assume transfers to a different one.
+    project_review_concurrency = _int_env("PROJECT_REVIEW_CONCURRENCY", 8)
     project_file_max_retries = _int_env("PROJECT_FILE_MAX_RETRIES", 2)
     # Tiered model routing (app/schemas/project_review.py's PRO_MODEL_TIERS) --
     # independent of GEMINI_MODEL, which is single-file Code Review's own
