@@ -150,10 +150,10 @@ export default function NewReviewPage() {
 
       <div className="tab-bar" role="tablist">
         <button role="tab" aria-selected={mode === 'single'} className={`tab-button${mode === 'single' ? ' active' : ''}`} onClick={() => setMode('single')}>
-          Single File
+          Code Review
         </button>
         <button role="tab" aria-selected={mode === 'project'} className={`tab-button${mode === 'project' ? ' active' : ''}`} onClick={() => setMode('project')}>
-          Project (.zip)
+          Project Review
         </button>
       </div>
 
