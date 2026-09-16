@@ -99,6 +99,43 @@ def test_full_project_review_flow_completes_and_aggregates(client):
     assert scores["src/auth/login.py"] < scores["src/main.py"]
 
 
+def test_files_analyzed_stays_accurate_under_concurrent_completions(client, monkeypatch):
+    """Regression test for a real bug: filesAnalyzed used to be a stored
+    counter incremented with `filesAnalyzed + 1` -- a read-then-write with
+    no transaction tying the two together, so files completing within the
+    same await-yield window could both read the same stale value and both
+    write +1, losing one of the two increments. A 2-file test can't catch
+    this (nothing to race), so this uses enough files to run genuinely
+    concurrently under settings.project_review_concurrency, with a tiny
+    forced yield in the mock analyzer to make the interleaving reliable
+    rather than dependent on scheduling luck."""
+    import asyncio
+
+    from app.services import gemini_service as gs
+
+    original_analyze = gs.analyze_code
+
+    async def yielding_analyze(code, language, historical_rules=None, model=None):
+        await asyncio.sleep(0)  # forces a real event-loop yield, not just a fast return
+        return await original_analyze(code, language, historical_rules, model)
+
+    monkeypatch.setattr(gs, "analyze_code", yielding_analyze)
+
+    entries = {f"src/f{i}.py": CLEAN_FILE for i in range(16)}
+    manifest = _upload_manifest(client, HEADERS_A, entries).json()
+    create = client.post(
+        "/api/projects",
+        json={"uploadToken": manifest["uploadToken"], "selectedPaths": list(entries.keys()), "reviewMode": "standard"},
+        headers=HEADERS_A,
+    )
+    project_id = create.json()["projectId"]
+    result = _wait_for_project_completion(client, project_id, HEADERS_A)
+
+    assert result["status"] == "COMPLETED"
+    assert result["filesAnalyzed"] == 16
+    assert all(f["status"] == "COMPLETED" for f in result["files"])
+
+
 def test_project_review_routes_pro_model_only_to_auth_and_api_tiers(client, monkeypatch):
     """Calling the strongest Gemini model for every file in a project doesn't
     scale -- PRO_MODEL_TIERS (app/schemas/project_review.py) restricts it to

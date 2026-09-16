@@ -1,6 +1,16 @@
 import { useMemo, useState } from 'react';
 import type { ExcludedEntry, ManifestFile, PriorityTier } from '../types';
 
+// An empty file has nothing for Gemini to review -- selecting it just
+// spends a call to say "this file is empty," so it's never selectable,
+// individually or via Select all/a folder checkbox. `lines` isn't a
+// reliable empty check (backend/app/services/project_review_service.py
+// computes it as `text.count("\n") + 1`, so a genuinely empty file still
+// reports 1) -- `size` (raw byte count) is the accurate signal.
+export function isSelectableFile(f: ManifestFile): boolean {
+  return f.size > 0;
+}
+
 interface Props {
   files: ManifestFile[];
   excluded: ExcludedEntry[];
@@ -74,11 +84,11 @@ function allFolderPaths(node: FolderNode, acc: string[] = []): string[] {
   return acc;
 }
 
-function descendantFilePaths(node: FolderNode): string[] {
-  const acc: string[] = [];
+function descendantFiles(node: FolderNode): ManifestFile[] {
+  const acc: ManifestFile[] = [];
   const walk = (n: FolderNode) => {
     for (const c of n.children) {
-      if (c.kind === 'file') acc.push(c.file.path);
+      if (c.kind === 'file') acc.push(c.file);
       else walk(c);
     }
   };
@@ -104,9 +114,10 @@ function FolderRow({
   onToggleMany: (paths: string[], next: boolean) => void;
   expanded: boolean; onToggleExpand: () => void;
 }) {
-  const descendants = useMemo(() => descendantFilePaths(node), [node]);
-  const selectedCount = descendants.filter((p) => selected.has(p)).length;
-  const allSelected = selectedCount === descendants.length;
+  const descendants = useMemo(() => descendantFiles(node), [node]);
+  const selectableDescendants = useMemo(() => descendants.filter(isSelectableFile), [descendants]);
+  const selectedCount = selectableDescendants.filter((f) => selected.has(f.path)).length;
+  const allSelected = selectableDescendants.length > 0 && selectedCount === selectableDescendants.length;
   const someSelected = selectedCount > 0 && !allSelected;
 
   return (
@@ -120,9 +131,10 @@ function FolderRow({
         type="checkbox"
         className="file-tree-checkbox"
         checked={allSelected}
+        disabled={selectableDescendants.length === 0}
         ref={(el) => { if (el) el.indeterminate = someSelected; }}
         onClick={(e) => e.stopPropagation()}
-        onChange={() => onToggleMany(descendants, !allSelected)}
+        onChange={() => onToggleMany(selectableDescendants.map((f) => f.path), !allSelected)}
       />
       <span className="file-tree-folder-icon" aria-hidden="true">{FOLDER_ICON}</span>
       <span className="file-tree-folder-name">{node.name}</span>
@@ -133,17 +145,23 @@ function FolderRow({
 
 function FileRow({ node, depth, selected, onToggle }: { node: FileNode; depth: number; selected: Set<string>; onToggle: (path: string) => void }) {
   const f = node.file;
+  const selectable = isSelectableFile(f);
   return (
-    <label className="file-tree-node file-tree-row" style={{ paddingLeft: 34 + depth * 18 }}>
+    <label
+      className={`file-tree-node file-tree-row${selectable ? '' : ' file-tree-row-disabled'}`}
+      style={{ paddingLeft: 34 + depth * 18 }}
+      title={selectable ? undefined : "Empty file -- nothing to review"}
+    >
       <input
         type="checkbox"
         className="file-tree-checkbox"
-        checked={selected.has(f.path)}
+        checked={selectable && selected.has(f.path)}
+        disabled={!selectable}
         onChange={() => onToggle(f.path)}
       />
       <span className="file-tree-path">{node.name}</span>
       <span className={`badge tier-badge tier-${f.tier}`}>{TIER_LABELS[f.tier]}</span>
-      <span className="file-tree-meta">{f.lines.toLocaleString()} lines &middot; {formatSize(f.size)}</span>
+      <span className="file-tree-meta">{selectable ? <>{f.lines.toLocaleString()} lines &middot; {formatSize(f.size)}</> : 'empty file'}</span>
     </label>
   );
 }

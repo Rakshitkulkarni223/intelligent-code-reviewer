@@ -404,13 +404,17 @@ async def retry_project_files(user_id: str, project_id: str, file_ids: list[str]
         await firestore_service.update_project_file(
             user_id, project_id, f.id, status="QUEUED", error=None, failureReason=None, attempts=f.attempts + 1,
         )
-    # Each target file already counted toward filesAnalyzed (a "reached a
-    # terminal state" counter, not a success counter -- see increment_
-    # files_analyzed's call sites) when it first failed; undo that so the
-    # progress bar reflects it being back in flight, then increment_files_
-    # analyzed counts it again once it completes.
+    # filesAnalyzed is recomputed from the in-memory file list (fetched
+    # above, before any of this function's writes) with the target files
+    # excluded -- not a subtraction from the stored counter, which is
+    # exactly the kind of delta-tracking that drifted from reality in the
+    # first place (see increment_files_analyzed's own docstring).
+    target_ids = {f.id for f in targets}
+    remaining_terminal = sum(
+        1 for f in project.files if f.id not in target_ids and f.status in ("COMPLETED", "FAILED", "SKIPPED")
+    )
     await firestore_service.update_project_review(
-        user_id, project_id, status="QUEUED", filesAnalyzed=max(0, project.filesAnalyzed - len(targets)),
+        user_id, project_id, status="QUEUED", filesAnalyzed=remaining_terminal,
     )
     await project_queue_service.publish(user_id, project_id)
     logger.info("retrying %s failed file(s) projectId=%s", len(targets), project_id)
@@ -555,12 +559,24 @@ async def mark_project_file_skipped(user_id: str, project_id: str, file_id: str)
     await firestore_service.update_project_file(user_id, project_id, file_id, status="SKIPPED")
 
 
+def _count_terminal_files(files: list[ProjectFile]) -> int:
+    return sum(1 for f in files if f.status in ("COMPLETED", "FAILED", "SKIPPED"))
+
+
 async def increment_files_analyzed(user_id: str, project_id: str) -> ProjectReview | None:
-    project = await firestore_service.get_project_review(user_id, project_id, include_files=False)
-    if not project:
-        return None
+    """Recomputes filesAnalyzed from the actual per-file statuses rather
+    than incrementing a stored counter. The old `filesAnalyzed + 1` version
+    was a real bug: under bounded concurrency, multiple files can finish
+    within the same instant, each independently reading the same
+    project.filesAnalyzed and writing project.filesAnalyzed + 1 with no
+    transaction tying the read to the write -- a classic lost-update race
+    that silently drops increments and compounds worse the more files (and
+    retries) a project has. Recomputing fresh here means a lost write
+    self-corrects on the very next file's completion instead of drifting
+    further from reality forever."""
+    files = await firestore_service.list_project_files(user_id, project_id)
     return await firestore_service.update_project_review(
-        user_id, project_id, filesAnalyzed=project.filesAnalyzed + 1
+        user_id, project_id, filesAnalyzed=_count_terminal_files(files)
     )
 
 

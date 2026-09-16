@@ -5,7 +5,7 @@ import type { ManifestFile, ProjectManifest, ReviewMode } from '../types';
 import { createProjectReview } from '../services/projects';
 import { queryKeys } from '../lib/queryKeys';
 import { useToast } from '../hooks/useToast';
-import ProjectFileTree from './ProjectFileTree';
+import ProjectFileTree, { isSelectableFile } from './ProjectFileTree';
 
 // The file-selection/review-mode/submit screen shown once ANY source has
 // produced a ProjectManifest -- originally only zip upload
@@ -23,7 +23,7 @@ export default function ProjectManifestReview({
   backLabel: string;
 }) {
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(manifest.files.filter((f) => f.defaultSelected).map((f) => f.path))
+    () => new Set(manifest.files.filter((f) => f.defaultSelected && isSelectableFile(f)).map((f) => f.path))
   );
   const [reviewMode, setReviewMode] = useState<ReviewMode>('standard');
   const [submitting, setSubmitting] = useState(false);
@@ -33,7 +33,7 @@ export default function ProjectManifestReview({
 
   const applyMode = (mode: ReviewMode, files: ManifestFile[]) => {
     setReviewMode(mode);
-    setSelected(new Set(files.filter((f) => (mode === 'comprehensive' ? true : f.defaultSelected)).map((f) => f.path)));
+    setSelected(new Set(files.filter((f) => (mode === 'comprehensive' ? true : f.defaultSelected) && isSelectableFile(f)).map((f) => f.path)));
   };
 
   const toggleFile = (path: string) => {
@@ -117,7 +117,7 @@ export default function ProjectManifestReview({
         selected={selected}
         onToggle={toggleFile}
         onToggleMany={toggleManyFiles}
-        onSelectAll={() => setSelected(new Set(manifest.files.map((f) => f.path)))}
+        onSelectAll={() => setSelected(new Set(manifest.files.filter(isSelectableFile).map((f) => f.path)))}
         onDeselectAll={() => setSelected(new Set())}
       />
 

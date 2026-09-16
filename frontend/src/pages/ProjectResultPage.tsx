@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { getProjectReview, retryProject, retryProjectFiles, retryProjectSummary } from '../services/projects';
@@ -43,7 +43,13 @@ export default function ProjectResultPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const [project, setProject] = useState<ProjectReview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
+  const [retryingSummary, setRetryingSummary] = useState(false);
+  // A ref, not state -- state updates aren't visible to a second click that
+  // lands before the re-render from the first one, so it can't actually
+  // stop a fast double-click on its own. A ref is checked-and-set
+  // synchronously, so the second click sees it's already in flight
+  // regardless of render timing.
+  const retryInFlightRef = useRef(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { show } = useToast();
@@ -71,41 +77,47 @@ export default function ProjectResultPage() {
   }, [projectId]);
 
   // retry-files/retry both put the project back into QUEUED/ANALYZING and
-  // do the actual re-analysis asynchronously in the worker -- routing
-  // through the progress page reuses its existing poll-until-terminal-then-
-  // redirect-back-here logic rather than duplicating it here.
-  const handleRetryFiles = async (fileIds?: string[]) => {
-    if (!projectId || retrying) return;
-    setRetrying(true);
-    try {
-      await retryProjectFiles(projectId, fileIds);
-      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
-      navigate(`/projects/${projectId}/progress`);
-    } catch (e) {
-      show(e instanceof Error ? e.message : 'Failed to retry', 'error');
-      setRetrying(false);
-    }
+  // do the actual re-analysis asynchronously in the worker -- navigating to
+  // the progress page immediately (not after awaiting the retry call) is
+  // deliberate: this page previously waited for the full network round
+  // trip before doing anything visible, which looked like the click hadn't
+  // registered and invited exactly the repeat-clicking the ref guard above
+  // now also blocks outright. The API call still runs -- just concurrently
+  // with navigation, not gating it -- and any failure surfaces as a toast,
+  // which ToastProvider (mounted above the router) keeps showing even
+  // after this component has already unmounted.
+  const startRetry = (makeCall: () => Promise<ProjectReview>) => {
+    // makeCall is a thunk, not an already-started promise -- evaluating
+    // retryProjectFiles(...) as a plain argument would fire the actual
+    // fetch() immediately, before this guard even runs (JS evaluates
+    // function arguments eagerly), defeating the whole point of checking
+    // retryInFlightRef first.
+    if (!projectId || retryInFlightRef.current) return;
+    retryInFlightRef.current = true;
+    navigate(`/projects/${projectId}/progress`);
+    makeCall()
+      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews }))
+      .catch((e) => show(e instanceof Error ? e.message : 'Failed to retry', 'error'));
   };
 
-  const handleRetryProject = async () => {
-    if (!projectId || retrying) return;
-    setRetrying(true);
-    try {
-      await retryProject(projectId);
-      queryClient.invalidateQueries({ queryKey: queryKeys.projectReviews });
-      navigate(`/projects/${projectId}/progress`);
-    } catch (e) {
-      show(e instanceof Error ? e.message : 'Failed to retry', 'error');
-      setRetrying(false);
-    }
+  const handleRetryFiles = (fileIds?: string[]) => {
+    if (!projectId) return;
+    startRetry(() => retryProjectFiles(projectId, fileIds));
+  };
+
+  const handleRetryProject = () => {
+    if (!projectId) return;
+    startRetry(() => retryProject(projectId));
   };
 
   // Unlike the two above, this never touches file status or the project's
   // QUEUED/ANALYZING lifecycle -- it's a single synchronous call that
-  // returns the updated project directly, so there's nothing to poll for.
+  // returns the updated project directly and never leaves this page, so
+  // there's nothing to navigate to and no race to guard against beyond the
+  // ordinary disabled-while-in-flight state.
   const handleRetrySummary = async () => {
-    if (!projectId || retrying) return;
-    setRetrying(true);
+    if (!projectId || retryingSummary) return;
+    setRetryingSummary(true);
     try {
       const updated = await retryProjectSummary(projectId);
       setProject(updated);
@@ -113,7 +125,7 @@ export default function ProjectResultPage() {
     } catch (e) {
       show(e instanceof Error ? e.message : 'Failed to regenerate the summary', 'error');
     } finally {
-      setRetrying(false);
+      setRetryingSummary(false);
     }
   };
 
@@ -158,9 +170,7 @@ export default function ProjectResultPage() {
       {project.status === 'FAILED' && (
         <div className="confidence-picker" style={{ marginBottom: 20, justifyContent: 'space-between' }} role="alert">
           <span>{project.error ?? "We couldn't analyze the project because of a temporary processing or network issue."}</span>
-          <button className="btn" onClick={handleRetryProject} disabled={retrying}>
-            {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Project'}
-          </button>
+          <button className="btn" onClick={handleRetryProject}>Retry Project</button>
         </div>
       )}
 
@@ -174,9 +184,7 @@ export default function ProjectResultPage() {
             </p>
           </div>
           <div className="info-banner-actions">
-            <button className="btn btn-primary" onClick={() => handleRetryFiles()} disabled={retrying}>
-              {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Failed Files'}
-            </button>
+            <button className="btn btn-primary" onClick={() => handleRetryFiles()}>Retry Failed Files</button>
           </div>
         </div>
       )}
@@ -188,8 +196,8 @@ export default function ProjectResultPage() {
             <p className="info-banner-text">File analysis completed, but the final project report could not be generated.</p>
           </div>
           <div className="info-banner-actions">
-            <button className="btn" onClick={handleRetrySummary} disabled={retrying}>
-              {retrying ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Final Report'}
+            <button className="btn" onClick={handleRetrySummary} disabled={retryingSummary}>
+              {retryingSummary ? (<><span className="spinner" aria-hidden="true" />Retrying…</>) : 'Retry Final Report'}
             </button>
           </div>
         </div>

@@ -1207,6 +1207,8 @@ button {
 .file-tree-node:last-child { border-bottom: none; }
 
 .file-tree-folder-row { font-weight: 600; user-select: none; }
+.file-tree-row-disabled { cursor: not-allowed; opacity: 0.5; }
+.file-tree-row-disabled:hover { background: none; }
 .file-tree-folder-icon { color: var(--accent); display: flex; flex-shrink: 0; opacity: 0.9; }
 .file-tree-folder-name { color: var(--text); }
 .file-tree-folder-count {
